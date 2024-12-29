@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.8.1" }
+tokenizers = "0.21.0"
