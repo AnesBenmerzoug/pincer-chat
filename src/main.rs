@@ -1,41 +1,84 @@
-pub mod model;
-pub mod text_generation;
 
-use crate::model::load_model_and_tokenizer;
-use crate::text_generation::TextGeneration;
-use candle_core::{Device, Result};
+use std::{thread, time};
 
-fn main() -> Result<()> {
-    let seed = 16;
-    let sample_len = 32;
+use iced::{Center, Element, Fill, Font, Left, Right, Subscription, Task, Theme};
+use iced::widget::{
+    self, button, center, column, container, horizontal_space, hover, progress_bar, row,
+    scrollable, stack, text, text_editor, tooltip, value,
+};
 
-    let hf_token: Option<String> = match std::env::var("HF_TOKEN") {
-        Ok(val) => Some(val),
-        _ => None,
-    };
-    let tokenizer_repo_id = "meta-llama/Llama-3.2-1B".to_string();
-    let model_repo_id = "bartowski/Llama-3.2-1B-Instruct-GGUF".to_string();
-
-    let (model, tokenizer, eos_token) =
-        load_model_and_tokenizer(model_repo_id, tokenizer_repo_id, hf_token)?;
-
-    let text_generator = TextGeneration::new(
-        model,
-        tokenizer,
-        eos_token,
-        seed,
-        None,
-        None,
-        None,
-        0.1,
-        0,
-        &Device::Cpu,
-    );
-
-    let prompt = "Hi, how are you?".to_string();
-    println!("Prompt: {}", prompt);
-    let generated_text = text_generator.generate(prompt, sample_len).unwrap();
-    println!("Generated text: {}", generated_text);
-
-    Ok(())
+pub fn main() -> iced::Result {
+    iced::application(Assistant::TITLE, Assistant::update, Assistant::view)
+        .run_with(Assistant::new)
 }
+#[derive(Debug)]
+struct Assistant {
+    state: State,
+    input: text_editor::Content,
+}
+
+#[derive(Clone, Debug)]
+enum State {
+    Loading,
+    Running,
+}
+
+#[derive(Debug, Clone)]
+enum Message {
+    LoadModel,
+}
+
+
+impl Assistant {
+    const TITLE: &str = "Rusty";
+
+    pub fn new() -> (Self, Task<Message>) {
+        (
+            Self {
+                state: State::Loading,
+                input: text_editor::Content::new(),
+            },
+            Task::done(Message::LoadModel),
+        )
+    }
+
+    fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::LoadModel => {
+                let sleep_duration = time::Duration::from_secs(3);
+                thread::sleep(sleep_duration);
+                self.state = State::Running;
+                Task::none()
+            }
+        }
+    }
+
+    fn view(&self) -> Element<Message> {
+        let messages: Element<_> = {
+            center(
+                match &self.state {
+                    State::Running { .. } => column![
+                        text("Your assistant is ready."),
+                        text("Break the ice! ↓").style(text::primary),
+                    ],
+                    State::Loading { .. } => column![
+                        text("Your assistant is launching..."),
+                        text("You can begin typing while you wait! ↓").style(text::success),
+                    ],
+                }
+                .spacing(10)
+                .align_x(Center),
+            )
+            .into()
+        };
+
+        let input = text_editor(&self.input)
+            .placeholder("Type your message here...")
+            .padding(10);
+
+        let chat = column![messages, input].spacing(10).align_x(Center);
+        chat.into()
+    }
+
+}
+
