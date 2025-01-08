@@ -1,17 +1,15 @@
-
 use std::{thread, time};
 
 use iced::clipboard;
 use iced::padding;
-use iced::{Center, Element, Fill, Font, Left, Right, Subscription, Task, Theme};
 use iced::widget::{
     self, button, center, column, container, horizontal_space, hover, progress_bar, row,
     scrollable, stack, text, text_editor, tooltip, value,
 };
+use iced::{Center, Element, Fill, Font, Left, Right, Subscription, Task, Theme};
 
 pub fn main() -> iced::Result {
-    iced::application(Assistant::TITLE, Assistant::update, Assistant::view)
-        .run_with(Assistant::new)
+    iced::application(Assistant::TITLE, Assistant::update, Assistant::view).run_with(Assistant::new)
 }
 #[derive(Debug)]
 struct Assistant {
@@ -33,7 +31,6 @@ enum Message {
     Submit,
     Done,
 }
-
 
 impl Assistant {
     const TITLE: &str = "Rusty";
@@ -70,9 +67,7 @@ impl Assistant {
                     Task::done(Message::Done)
                 }
             }
-            Message::Done => {
-                Task::none()
-            }
+            Message::Done => Task::none(),
         }
     }
 
@@ -80,9 +75,7 @@ impl Assistant {
         let messages: Element<_> = if self.messages.is_empty() {
             center(
                 match &self.state {
-                    State::Running { .. } => column![
-                        text("Your assistant is ready."),
-                    ],
+                    State::Running { .. } => column![text("Your assistant is ready."),],
                     State::Loading { .. } => column![
                         text("Your assistant is launching..."),
                         text("You can begin typing while you wait! ↓").style(text::success),
@@ -93,16 +86,13 @@ impl Assistant {
             )
             .into()
         } else {
-            scrollable(
-                column(self.messages.iter().map(message_bubble))
-                    .spacing(10)
-            )
-            .anchor_y(scrollable::Anchor::End)
-            .height(Fill)
-            .into()
+            scrollable(column(self.messages.iter().map(message_bubble)).spacing(10))
+                .anchor_y(scrollable::Anchor::End)
+                .height(Fill)
+                .into()
         };
 
-        let input_text  = text_editor(&self.input)
+        let input_text = text_editor(&self.input)
             .placeholder("Type your message here...")
             .padding(10)
             .on_action(Message::InputChanged)
@@ -117,17 +107,14 @@ impl Assistant {
                 }
             });
 
-        let submit_button= button(text("Submit"))
-            .on_press(Message::Submit);
+        let submit_button = button(text("Submit")).on_press(Message::Submit);
 
         let input = row![input_text, submit_button];
 
         let chat = column![messages, input].spacing(10).align_x(Center);
         chat.into()
     }
-
 }
-
 
 fn message_bubble(message: &String) -> Element<Message> {
     use iced::border;
@@ -138,7 +125,8 @@ fn message_bubble(message: &String) -> Element<Message> {
             .style(move |theme: &Theme| {
                 let palette = theme.extended_palette();
 
-                let (background, radius) = (palette.success.weak, border::radius(10.0).top_right(0));
+                let (background, radius) =
+                    (palette.success.weak, border::radius(10.0).top_right(0));
 
                 container::Style {
                     background: Some(background.color.into()),
