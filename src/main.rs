@@ -1,6 +1,6 @@
-use std::{thread, time};
+mod model;
 
-use iced::clipboard;
+use iced::futures::channel::mpsc;
 use iced::padding;
 use iced::widget::{
     self, button, center, column, container, horizontal_space, hover, progress_bar, row,
@@ -9,66 +9,104 @@ use iced::widget::{
 use iced::{Center, Element, Fill, Font, Left, Right, Subscription, Task, Theme};
 
 pub fn main() -> iced::Result {
-    iced::application(Assistant::TITLE, Assistant::update, Assistant::view).run_with(Assistant::new)
+    let model_repo_id = String::from("QuantFactory/Qwen2.5-0.5B-Instruct-GGUF");
+    let model_file = String::from("Qwen2.5-0.5B-Instruct.Q4_0.gguf");
+    let tokenizer_repo_id = String::from("Qwen/Qwen2.5-0.5B-Instruct");
+
+    iced::application(App::title, App::update, App::view)
+        .subscription(App::subscription)
+        .run_with(move || App::new(model_repo_id, model_file, tokenizer_repo_id))
 }
 #[derive(Debug)]
-struct Assistant {
+struct App {
     state: State,
     input: text_editor::Content,
     messages: Vec<String>,
+    model_repo_id: String,
+    model_file: String,
+    tokenizer_repo_id: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum State {
     Loading,
-    Running,
+    Running(mpsc::Sender<String>),
 }
 
 #[derive(Debug, Clone)]
 enum Message {
-    LoadModel,
+    ReceivedMessage(model::Event),
     InputChanged(text_editor::Action),
-    Submit,
-    Done,
+    SubmitMessage,
 }
 
-impl Assistant {
-    const TITLE: &str = "Rusty";
+impl App {
+    fn title(&self) -> String {
+        return String::from("Rusty Local AI Assistant");
+    }
 
-    pub fn new() -> (Self, Task<Message>) {
+    pub fn new(
+        model_repo_id: String,
+        model_file: String,
+        tokenizer_repo_id: String,
+    ) -> (Self, Task<Message>) {
         (
             Self {
                 state: State::Loading,
                 input: text_editor::Content::new(),
                 messages: Vec::new(),
+                model_repo_id,
+                model_file,
+                tokenizer_repo_id,
             },
-            Task::done(Message::LoadModel),
+            Task::none(),
         )
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::LoadModel => {
-                let sleep_duration = time::Duration::from_secs(3);
-                thread::sleep(sleep_duration);
-                self.state = State::Running;
+            Message::ReceivedMessage(event) => {
+                match event {
+                    model::Event::Loaded(sender) => {
+                        self.state = State::Running(sender);
+                    }
+                    model::Event::AnswerGenerated(answer) => {
+                        println!("Received generated answer: {}", answer);
+                        self.messages.push(answer);
+                    }
+                }
                 Task::none()
             }
             Message::InputChanged(action) => {
                 self.input.perform(action);
                 Task::none()
             }
-            Message::Submit => {
-                if self.input.text().is_empty() {
+            Message::SubmitMessage => {
+                if self.input.text().trim().is_empty() {
                     Task::none()
                 } else {
-                    self.messages.push(self.input.text());
-                    self.input = text_editor::Content::new();
-                    Task::done(Message::Done)
+                    if let State::Running(sender) = &mut self.state {
+                        if let Ok(()) = sender.try_send(self.input.text()) {
+                            self.messages.push(self.input.text());
+                            // Empty the input field
+                            self.input = text_editor::Content::new();
+                        }
+                    }
+                    Task::none()
                 }
             }
-            Message::Done => Task::none(),
         }
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        let model_repo_id = self.model_repo_id.clone();
+        let model_file = self.model_file.clone();
+        let tokenizer_repo_id = self.tokenizer_repo_id.clone();
+
+        let start_assistant =
+            move || model::start_assistant(model_repo_id, model_file, tokenizer_repo_id);
+        Subscription::run_with_id("assistant_subscription", start_assistant())
+            .map(Message::ReceivedMessage)
     }
 
     fn view(&self) -> Element<Message> {
@@ -101,13 +139,13 @@ impl Assistant {
 
                 match text_editor::Binding::from_key_press(key_press) {
                     Some(text_editor::Binding::Enter) if !modifiers.shift() => {
-                        Some(text_editor::Binding::Custom(Message::Submit))
+                        Some(text_editor::Binding::Custom(Message::SubmitMessage))
                     }
                     binding => binding,
                 }
             });
 
-        let submit_button = button(text("Submit")).on_press(Message::Submit);
+        let submit_button = button(text("Submit")).on_press(Message::SubmitMessage);
 
         let input = row![input_text, submit_button];
 

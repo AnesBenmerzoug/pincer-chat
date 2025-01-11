@@ -7,6 +7,7 @@ edition = "2021"
 candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.8.1" }
 candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.8.1" }
 candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.8.1" }
+futures = "0.3.31"
 hf-hub = "0.3.2"
 iced = "0.13.1"
 indicatif = "0.17.9"
