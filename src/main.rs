@@ -1,12 +1,9 @@
-mod model;
+mod assistant;
 
 use iced::futures::channel::mpsc;
 use iced::padding;
-use iced::widget::{
-    self, button, center, column, container, horizontal_space, hover, progress_bar, row,
-    scrollable, stack, text, text_editor, tooltip, value,
-};
-use iced::{Center, Element, Fill, Font, Left, Right, Subscription, Task, Theme};
+use iced::widget::{button, center, column, container, row, scrollable, text, text_editor};
+use iced::{Center, Element, Fill, Subscription, Task, Theme};
 
 pub fn main() -> iced::Result {
     let model_repo_id = String::from("QuantFactory/Qwen2.5-0.5B-Instruct-GGUF");
@@ -35,7 +32,7 @@ enum State {
 
 #[derive(Debug, Clone)]
 enum Message {
-    ReceivedMessage(model::Event),
+    ReceivedMessage(assistant::Event),
     InputChanged(text_editor::Action),
     SubmitMessage,
 }
@@ -67,10 +64,10 @@ impl App {
         match message {
             Message::ReceivedMessage(event) => {
                 match event {
-                    model::Event::Loaded(sender) => {
+                    assistant::Event::Loaded(sender) => {
                         self.state = State::Running(sender);
                     }
-                    model::Event::AnswerGenerated(answer) => {
+                    assistant::Event::AnswerGenerated(answer) => {
                         println!("Received generated answer: {}", answer);
                         self.messages.push(answer);
                     }
@@ -104,7 +101,7 @@ impl App {
         let tokenizer_repo_id = self.tokenizer_repo_id.clone();
 
         let start_assistant =
-            move || model::start_assistant(model_repo_id, model_file, tokenizer_repo_id);
+            move || assistant::start_assistant(model_repo_id, model_file, tokenizer_repo_id);
         Subscription::run_with_id("assistant_subscription", start_assistant())
             .map(Message::ReceivedMessage)
     }
