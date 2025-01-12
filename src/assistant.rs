@@ -1,11 +1,11 @@
 use std::str::FromStr;
 
-use mistralrs::{GgufModelBuilder, Model, TextMessageRole, TextMessages, TokenSource};
+use mistralrs::{GgufModelBuilder, Model, Response, TextMessageRole, TextMessages, TokenSource};
 
 use futures::sink::SinkExt;
-use futures::stream::{Stream, StreamExt};
+use futures::stream::{self, StreamExt};
 use iced::futures::channel::mpsc;
-use iced::stream;
+use iced::stream::channel;
 
 pub struct Assistant {
     model_repo_id: String,
@@ -17,7 +17,8 @@ pub struct Assistant {
 #[derive(Debug, Clone)]
 pub enum Event {
     Loaded(mpsc::Sender<String>),
-    AnswerGenerated(String),
+    GeneratedAnswerDelta(String),
+    FinishedGeneration,
 }
 
 #[derive(Debug)]
@@ -30,8 +31,8 @@ pub fn start_assistant(
     model_repo_id: String,
     model_file: String,
     tokenizer_repo_id: String,
-) -> impl Stream<Item = Event> {
-    stream::channel(100, |mut output| async move {
+) -> impl StreamExt<Item = Event> {
+    channel(100, |mut output| async move {
         let mut state = State::Loading;
 
         let assistant: Assistant =
@@ -49,9 +50,7 @@ pub fn start_assistant(
                             input_message = receiver.select_next_some() => {
                                 println!("Received input message: {}", input_message);
                                 println!("Generating answer");
-                                let generated_answer = assistant.generate_answer(input_message).await;
-                                println!("Generated answer: {}", generated_answer);
-                                output.send(Event::AnswerGenerated(generated_answer)).await.unwrap();
+                                assistant.generate_answer(input_message, &mut output).await;
                             }
                     }
                 }
@@ -63,6 +62,7 @@ pub fn start_assistant(
 impl Assistant {
     pub async fn new(model_repo_id: String, model_file: String, tokenizer_repo_id: String) -> Self {
         let model = match GgufModelBuilder::new(model_repo_id.clone(), vec![model_file.clone()])
+            .with_max_num_seqs(128)
             .with_tok_model_id(tokenizer_repo_id.clone())
             .with_logging()
             .with_token_source(TokenSource::from_str("env").unwrap())
@@ -80,14 +80,22 @@ impl Assistant {
         }
     }
 
-    pub async fn generate_answer(&self, input_text: String) -> String {
+    pub async fn generate_answer(&self, input_text: String, output: &mut mpsc::Sender<Event>) {
         let messages = TextMessages::new()
             .add_message(
                 TextMessageRole::System,
                 "You are a helpful AI assistant called Rusty.",
             )
             .add_message(TextMessageRole::User, input_text);
-        let response = self.model.send_chat_request(messages).await.unwrap();
-        response.choices[0].message.content.clone().unwrap()
+        let mut stream = self.model.stream_chat_request(messages).await.unwrap();
+
+        while let Some(response) = stream.next().await {
+            if let Response::Chunk(chunk) = response {
+                output.send(Event::GeneratedAnswerDelta(chunk.choices[0].delta.content.clone())).await.unwrap();
+            } else {
+                output.send(Event::FinishedGeneration).await.unwrap();
+                break;
+            }
+        }
     }
 }

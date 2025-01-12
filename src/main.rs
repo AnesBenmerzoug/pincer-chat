@@ -6,9 +6,9 @@ use iced::widget::{button, center, column, container, row, scrollable, text, tex
 use iced::{Center, Element, Fill, Subscription, Task, Theme};
 
 pub fn main() -> iced::Result {
-    let model_repo_id = String::from("QuantFactory/Qwen2.5-0.5B-Instruct-GGUF");
-    let model_file = String::from("Qwen2.5-0.5B-Instruct.Q4_0.gguf");
-    let tokenizer_repo_id = String::from("Qwen/Qwen2.5-0.5B-Instruct");
+    let model_repo_id = String::from("QuantFactory/Llama-3.2-1B-Instruct-GGUF");
+    let model_file = String::from("Llama-3.2-1B-Instruct.Q6_K.gguf");
+    let tokenizer_repo_id = String::from("meta-llama/Llama-3.2-1B-Instruct");
 
     iced::application(App::title, App::update, App::view)
         .subscription(App::subscription)
@@ -67,9 +67,13 @@ impl App {
                     assistant::Event::Loaded(sender) => {
                         self.state = State::Running(sender);
                     }
-                    assistant::Event::AnswerGenerated(answer) => {
-                        println!("Received generated answer: {}", answer);
-                        self.messages.push(answer);
+                    assistant::Event::GeneratedAnswerDelta(answer_delta) => {
+                        println!("Received generated answer delta: {}", answer_delta);
+                        let n_messages = self.messages.len();
+                        self.messages[n_messages - 1].push_str(&answer_delta);
+                    }
+                    assistant::Event::FinishedGeneration => {
+                        println!("Finished generation");
                     }
                 }
                 Task::none()
@@ -85,6 +89,7 @@ impl App {
                     if let State::Running(sender) = &mut self.state {
                         if let Ok(()) = sender.try_send(self.input.text()) {
                             self.messages.push(self.input.text());
+                            self.messages.push(String::from(""));
                             // Empty the input field
                             self.input = text_editor::Content::new();
                         }
