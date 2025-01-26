@@ -1,38 +1,33 @@
 mod assistant;
 
-use iced::futures::channel::mpsc;
+use std::str::FromStr;
+
 use iced::padding;
 use iced::widget::{button, center, column, container, row, scrollable, text, text_editor};
-use iced::{Center, Element, Fill, Subscription, Task, Theme};
+use iced::{Center, Element, Fill, Task, Theme};
+
+use assistant::{Assistant, AssistantMessages, AssistantMessage};
 
 pub fn main() -> iced::Result {
-    let model_repo_id = String::from("QuantFactory/Llama-3.2-1B-Instruct-GGUF");
-    let model_file = String::from("Llama-3.2-1B-Instruct.Q6_K.gguf");
-    let tokenizer_repo_id = String::from("meta-llama/Llama-3.2-1B-Instruct");
-
     iced::application(App::title, App::update, App::view)
-        .subscription(App::subscription)
-        .run_with(move || App::new(model_repo_id, model_file, tokenizer_repo_id))
+        .run_with(App::new)
 }
 #[derive(Debug)]
 struct App {
     state: State,
     input: text_editor::Content,
-    messages: Vec<String>,
-    model_repo_id: String,
-    model_file: String,
-    tokenizer_repo_id: String,
+    messages: AssistantMessages,
+    assistant: Assistant,
 }
 
 #[derive(Debug)]
 enum State {
     Loading,
-    Running(mpsc::Sender<String>),
+    Running,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
-    ReceivedMessage(assistant::Event),
     InputChanged(text_editor::Action),
     SubmitMessage,
 }
@@ -42,19 +37,19 @@ impl App {
         return String::from("Rusty Local AI Assistant");
     }
 
-    pub fn new(
-        model_repo_id: String,
-        model_file: String,
-        tokenizer_repo_id: String,
-    ) -> (Self, Task<Message>) {
+    pub fn new() -> (Self, Task<Message>) {
+        let model = String::from("llama3.2");
+        let mut messages = AssistantMessages::new();
+        messages
+            .add_system_message(
+                String::from_str("You are a helpful AI assistant called Rusty.").unwrap(),
+            );
         (
             Self {
-                state: State::Loading,
+                state: State::Running,
                 input: text_editor::Content::new(),
-                messages: Vec::new(),
-                model_repo_id,
-                model_file,
-                tokenizer_repo_id,
+                messages: messages,
+                assistant: Assistant::new(model),
             },
             Task::none(),
         )
@@ -62,22 +57,6 @@ impl App {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::ReceivedMessage(event) => {
-                match event {
-                    assistant::Event::Loaded(sender) => {
-                        self.state = State::Running(sender);
-                    }
-                    assistant::Event::GeneratedAnswerDelta(answer_delta) => {
-                        println!("Received generated answer delta: {}", answer_delta);
-                        let n_messages = self.messages.len();
-                        self.messages[n_messages - 1].push_str(&answer_delta);
-                    }
-                    assistant::Event::FinishedGeneration => {
-                        println!("Finished generation");
-                    }
-                }
-                Task::none()
-            }
             Message::InputChanged(action) => {
                 self.input.perform(action);
                 Task::none()
@@ -86,13 +65,12 @@ impl App {
                 if self.input.text().trim().is_empty() {
                     Task::none()
                 } else {
-                    if let State::Running(sender) = &mut self.state {
-                        if let Ok(()) = sender.try_send(self.input.text()) {
-                            self.messages.push(self.input.text());
-                            self.messages.push(String::from(""));
-                            // Empty the input field
-                            self.input = text_editor::Content::new();
-                        }
+                    if let State::Running = &mut self.state {
+                        self.messages.add_user_message(self.input.text());
+                        let output_message = self.assistant.generate_answer(&self.messages);
+                        self.messages.add_message(output_message);
+                        // Empty the input field
+                        self.input = text_editor::Content::new();
                     }
                     Task::none()
                 }
@@ -100,18 +78,7 @@ impl App {
         }
     }
 
-    fn subscription(&self) -> Subscription<Message> {
-        let model_repo_id = self.model_repo_id.clone();
-        let model_file = self.model_file.clone();
-        let tokenizer_repo_id = self.tokenizer_repo_id.clone();
-
-        let start_assistant =
-            move || assistant::start_assistant(model_repo_id, model_file, tokenizer_repo_id);
-        Subscription::run_with_id("assistant_subscription", start_assistant())
-            .map(Message::ReceivedMessage)
-    }
-
-    fn view(&self) -> Element<Message> {
+    fn view(& self) -> Element<Message> {
         let messages: Element<_> = if self.messages.is_empty() {
             center(
                 match &self.state {
@@ -126,7 +93,7 @@ impl App {
             )
             .into()
         } else {
-            scrollable(column(self.messages.iter().map(message_bubble)).spacing(10))
+            scrollable(column(self.messages.messages.iter().map(message_bubble)).spacing(10))
                 .anchor_y(scrollable::Anchor::End)
                 .height(Fill)
                 .into()
@@ -156,11 +123,11 @@ impl App {
     }
 }
 
-fn message_bubble(message: &String) -> Element<Message> {
+fn message_bubble(message: &AssistantMessage) -> Element<Message> {
     use iced::border;
 
     let bubble = container(
-        container(text(message).shaping(text::Shaping::Advanced))
+        container(text(message.content.clone()).shaping(text::Shaping::Advanced))
             .width(Fill)
             .style(move |theme: &Theme| {
                 let palette = theme.extended_palette();

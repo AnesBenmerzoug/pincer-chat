@@ -1,101 +1,123 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
-use mistralrs::{GgufModelBuilder, Model, Response, TextMessageRole, TextMessages, TokenSource};
+use reqwest;
+use serde::{Serialize, Deserialize};
+use serde_json;
 
-use futures::sink::SinkExt;
-use futures::stream::{self, StreamExt};
-use iced::futures::channel::mpsc;
-use iced::stream::channel;
-
+#[derive(Debug)]
 pub struct Assistant {
-    model_repo_id: String,
-    model_file: String,
-    tokenizer_repo_id: String,
-    model: Model,
+    model_name: String,
+    client: reqwest::blocking::Client,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Role {
+    System,
+    User,
+    Assistant,
+    Tool
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AssistantMessage {
+    pub role: Role,
+    pub content: String,
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AssistantMessages {
+    pub messages: Vec<AssistantMessage>
+}
+
+impl AssistantMessages {
+    pub fn new() -> Self {
+        Self {
+            messages: Vec::new(),
+        }
+    }
+    pub fn add_message(&mut self, message: AssistantMessage) -> &mut Self {
+        self.messages.push(message);
+        self
+    }
+
+    pub fn add_system_message(&mut self, content: String) -> &mut Self {
+        let message = AssistantMessage{role: Role::System, content};
+        self.add_message(message)
+    }
+
+    pub fn add_user_message(&mut self, content: String) -> &mut Self {
+        let message = AssistantMessage{role: Role::User, content};
+        self.add_message(message)
+    }
+
+    pub fn add_assistant_message(&mut self, content: String) -> &mut Self {
+        let message = AssistantMessage{role: Role::Assistant, content};
+        self.add_message(message)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.messages.len()
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    Loaded(mpsc::Sender<String>),
+    Loaded,
     GeneratedAnswerDelta(String),
     FinishedGeneration,
 }
 
-#[derive(Debug)]
-enum State {
-    Loading,
-    Ready(mpsc::Receiver<String>),
-}
-
-pub fn start_assistant(
-    model_repo_id: String,
-    model_file: String,
-    tokenizer_repo_id: String,
-) -> impl StreamExt<Item = Event> {
-    channel(100, |mut output| async move {
-        let mut state = State::Loading;
-
-        let assistant: Assistant =
-            Assistant::new(model_repo_id, model_file, tokenizer_repo_id).await;
-
-        loop {
-            match &mut state {
-                State::Loading => {
-                    let (sender, receiver) = mpsc::channel(1);
-                    output.send(Event::Loaded(sender)).await.unwrap();
-                    state = State::Ready(receiver);
-                }
-                State::Ready(receiver) => {
-                    futures::select! {
-                            input_message = receiver.select_next_some() => {
-                                println!("Received input message: {}", input_message);
-                                println!("Generating answer");
-                                assistant.generate_answer(input_message, &mut output).await;
-                            }
-                    }
-                }
-            }
-        }
-    })
-}
-
 impl Assistant {
-    pub async fn new(model_repo_id: String, model_file: String, tokenizer_repo_id: String) -> Self {
-        let model = match GgufModelBuilder::new(model_repo_id.clone(), vec![model_file.clone()])
-            .with_max_num_seqs(128)
-            .with_tok_model_id(tokenizer_repo_id.clone())
-            .with_logging()
-            .with_token_source(TokenSource::from_str("env").unwrap())
-            .build()
-            .await
-        {
-            Ok(model) => model,
-            Err(e) => panic!("Failed loading model {}", e),
-        };
+    pub fn new(model_name: String) -> Self {
+        let client = reqwest::blocking::Client::new();
+        let mut body = HashMap::new();
+        body.insert("model", model_name.clone()); 
+        let response = client.post("http://localhost:11434/api/pull").json(&body).send().unwrap();
+
+        #[derive(Deserialize)]
+        struct PullResponse {
+            status: String,
+        }
+        let response_json: PullResponse = response.json().unwrap();
+        if response_json.status == "success" {
+            println!("Succeeded downloading model {}", model_name);
+        } else {
+            println!("Failed downloading model {}", model_name)
+        }
         Self {
-            model_repo_id,
-            model_file,
-            tokenizer_repo_id,
-            model,
+            model_name,
+            client,
         }
     }
 
-    pub async fn generate_answer(&self, input_text: String, output: &mut mpsc::Sender<Event>) {
-        let messages = TextMessages::new()
-            .add_message(
-                TextMessageRole::System,
-                "You are a helpful AI assistant called Rusty.",
-            )
-            .add_message(TextMessageRole::User, input_text);
-        let mut stream = self.model.stream_chat_request(messages).await.unwrap();
+    pub fn generate_answer(&self, messages: &AssistantMessages) -> AssistantMessage {
+        let mut body = HashMap::new();
+        body.insert("model", self.model_name.clone()); 
+        body.insert("messages", serde_json::to_string(&messages).unwrap());
+        body.insert("stream", String::from_str("false").unwrap());
+        let response = self.client.post("http://localhost:11434/api/chat").json(&body).send().unwrap();
 
-        while let Some(response) = stream.next().await {
-            if let Response::Chunk(chunk) = response {
-                output.send(Event::GeneratedAnswerDelta(chunk.choices[0].delta.content.clone())).await.unwrap();
-            } else {
-                output.send(Event::FinishedGeneration).await.unwrap();
-                break;
-            }
+        #[derive(Deserialize)]
+        struct ChatResponse {
+            model: String,
+            created_at: String,
+            message: AssistantMessage,
+            done: bool,
+            total_duration: u32,
+            load_duration: u32,
+            prompt_eval_count: u32,
+            prompt_eval_duration: u32,
+            eval_count: u32,
+            eval_duration: u32
         }
+        let response_json: ChatResponse = response.json().unwrap();
+        response_json.message
     }
 }
