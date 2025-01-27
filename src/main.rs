@@ -1,150 +1,134 @@
-mod assistant;
+use gtk::prelude::*;
+use relm4::factory::FactoryVecDeque;
+use relm4::prelude::*;
 
-use std::str::FromStr;
+const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 
-use iced::padding;
-use iced::widget::{button, center, column, container, row, scrollable, text, text_editor};
-use iced::{Center, Element, Fill, Task, Theme};
 
-use assistant::{Assistant, AssistantMessages, AssistantMessage};
-
-pub fn main() -> iced::Result {
-    iced::application(App::title, App::update, App::view)
-        .run_with(App::new)
-}
 #[derive(Debug)]
 struct App {
-    state: State,
-    input: text_editor::Content,
-    messages: AssistantMessages,
-    assistant: Assistant,
+    messages: FactoryVecDeque<Message>,
+    user_input: gtk::EntryBuffer,
 }
 
 #[derive(Debug)]
-enum State {
-    Loading,
-    Running,
+enum AppMsg {
+    Submit
 }
 
-#[derive(Debug, Clone)]
-enum Message {
-    InputChanged(text_editor::Action),
-    SubmitMessage,
+#[derive(Debug)]
+struct Message {
+    content: String,
 }
 
-impl App {
-    fn title(&self) -> String {
-        return String::from("Rusty Local AI Assistant");
+#[relm4::factory]
+impl FactoryComponent for Message {
+    type Init = String;
+    type Input = ();
+    type Output = ();
+    type CommandOutput = ();
+    type ParentWidget = gtk::Box;
+
+    view! {
+        gtk::Text {
+            set_text: &self.content,
+        }
     }
 
-    pub fn new() -> (Self, Task<Message>) {
-        let model = String::from("llama3.2");
-        let mut messages = AssistantMessages::new();
-        messages
-            .add_system_message(
-                String::from_str("You are a helpful AI assistant called Rusty.").unwrap(),
-            );
-        (
-            Self {
-                state: State::Running,
-                input: text_editor::Content::new(),
-                messages: messages,
-                assistant: Assistant::new(model),
-            },
-            Task::none(),
-        )
+    fn init_model(content: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+        Self { content }
     }
+}
 
-    fn update(&mut self, message: Message) -> Task<Message> {
-        match message {
-            Message::InputChanged(action) => {
-                self.input.perform(action);
-                Task::none()
-            }
-            Message::SubmitMessage => {
-                if self.input.text().trim().is_empty() {
-                    Task::none()
-                } else {
-                    if let State::Running = &mut self.state {
-                        self.messages.add_user_message(self.input.text());
-                        let output_message = self.assistant.generate_answer(&self.messages);
-                        self.messages.add_message(output_message);
-                        // Empty the input field
-                        self.input = text_editor::Content::new();
+#[relm4::component]
+impl SimpleComponent for App {
+    type Init = ();
+    type Input = AppMsg;
+    type Output = ();
+
+    view! {
+        gtk::ApplicationWindow {
+            set_title: Some("Chat"),
+            set_default_size: (800, 600),
+            set_hexpand: true,
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_margin_all: 5,
+                set_spacing: 5,
+
+                gtk::ScrolledWindow {
+                    #[local]
+                    factory_box -> gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_margin_all: 5,
+                        set_spacing: 5,
+                        set_hexpand: true,
+                        set_vexpand: true,
+                        set_halign: gtk::Align::Fill,
+                        set_valign: gtk::Align::Fill,
+                    },
+                },
+
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_margin_all: 5,
+                    set_spacing: 5,
+                    set_halign: gtk::Align::Fill,
+                    set_valign: gtk::Align::End,
+
+                    gtk::Entry {
+                        set_buffer: &model.user_input,
+                        set_tooltip_text: Some("Send a message"),
+                        set_placeholder_text: Some("Send a message"), 
+                        connect_activate => AppMsg::Submit,
+                        set_hexpand: true,
+                        set_halign: gtk::Align::Fill,
+                    },
+                    gtk::Button {
+                        set_label: "Send",
+                        connect_clicked => AppMsg::Submit,
                     }
-                    Task::none()
                 }
             }
         }
     }
 
-    fn view(& self) -> Element<Message> {
-        let messages: Element<_> = if self.messages.is_empty() {
-            center(
-                match &self.state {
-                    State::Running { .. } => column![text("Your assistant is ready."),],
-                    State::Loading { .. } => column![
-                        text("Your assistant is launching..."),
-                        text("You can begin typing while you wait! ↓").style(text::success),
-                    ],
+    fn init(
+        _: (),
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let factory_box = gtk::Box::default();
+        
+        let messages = FactoryVecDeque::builder()
+            .launch(factory_box.clone())
+            .forward(sender.input_sender(), |_| AppMsg::Submit);
+
+        let model = App { messages: messages, user_input: gtk::EntryBuffer::default(), };
+
+        // Insert the macro code generation here
+        let widgets = view_output!();
+
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+        match msg {
+            AppMsg::Submit => {
+                let text = self.user_input.text();
+                if !text.is_empty() {
+                    let mut guard = self.messages.guard();
+                    guard.push_back(text.to_string());
+                    // clearing the entry value clears the entry widget
+                    self.user_input.set_text("");
                 }
-                .spacing(10)
-                .align_x(Center),
-            )
-            .into()
-        } else {
-            scrollable(column(self.messages.messages.iter().map(message_bubble)).spacing(10))
-                .anchor_y(scrollable::Anchor::End)
-                .height(Fill)
-                .into()
-        };
-
-        let input_text = text_editor(&self.input)
-            .placeholder("Type your message here...")
-            .padding(10)
-            .on_action(Message::InputChanged)
-            .key_binding(|key_press| {
-                let modifiers = key_press.modifiers;
-
-                match text_editor::Binding::from_key_press(key_press) {
-                    Some(text_editor::Binding::Enter) if !modifiers.shift() => {
-                        Some(text_editor::Binding::Custom(Message::SubmitMessage))
-                    }
-                    binding => binding,
-                }
-            });
-
-        let submit_button = button(text("Submit")).on_press(Message::SubmitMessage);
-
-        let input = row![input_text, submit_button];
-
-        let chat = column![messages, input].spacing(10).align_x(Center);
-        chat.into()
+            }
+        }
     }
 }
 
-fn message_bubble(message: &AssistantMessage) -> Element<Message> {
-    use iced::border;
-
-    let bubble = container(
-        container(text(message.content.clone()).shaping(text::Shaping::Advanced))
-            .width(Fill)
-            .style(move |theme: &Theme| {
-                let palette = theme.extended_palette();
-
-                let (background, radius) =
-                    (palette.success.weak, border::radius(10.0).top_right(0));
-
-                container::Style {
-                    background: Some(background.color.into()),
-                    text_color: Some(background.text),
-                    border: border::rounded(radius),
-                    ..container::Style::default()
-                }
-            })
-            .padding(10),
-    )
-    .padding(padding::left(20));
-
-    bubble.into()
+fn main() {
+    let relm = RelmApp::new(APP_ID);
+    relm.run::<App>(());
 }

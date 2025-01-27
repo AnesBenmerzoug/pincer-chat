@@ -1,123 +1,190 @@
-use std::collections::HashMap;
-use std::str::FromStr;
+pub mod types;
 
+use std::str::FromStr;
+use std::time::Duration;
+
+use anyhow::{Error, Result};
+use futures::sink::SinkExt;
+use futures::stream::StreamExt;
+use futures::{Stream, TryStreamExt};
+use iced::futures::channel::mpsc;
+use iced::stream::channel;
 use reqwest;
-use serde::{Serialize, Deserialize};
 use serde_json;
+use tokio::runtime::Runtime;
+
+use crate::assistant::types::{
+    ChatRequest, ChatResponse, Message, PullModelRequest, PullModelResponse,
+};
 
 #[derive(Debug)]
 pub struct Assistant {
-    model_name: String,
-    client: reqwest::blocking::Client,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Role {
-    System,
-    User,
-    Assistant,
-    Tool
-}
-
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AssistantMessage {
-    pub role: Role,
-    pub content: String,
-}
-
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AssistantMessages {
-    pub messages: Vec<AssistantMessage>
-}
-
-impl AssistantMessages {
-    pub fn new() -> Self {
-        Self {
-            messages: Vec::new(),
-        }
-    }
-    pub fn add_message(&mut self, message: AssistantMessage) -> &mut Self {
-        self.messages.push(message);
-        self
-    }
-
-    pub fn add_system_message(&mut self, content: String) -> &mut Self {
-        let message = AssistantMessage{role: Role::System, content};
-        self.add_message(message)
-    }
-
-    pub fn add_user_message(&mut self, content: String) -> &mut Self {
-        let message = AssistantMessage{role: Role::User, content};
-        self.add_message(message)
-    }
-
-    pub fn add_assistant_message(&mut self, content: String) -> &mut Self {
-        let message = AssistantMessage{role: Role::Assistant, content};
-        self.add_message(message)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.messages.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.messages.len()
-    }
+    model: String,
+    client: reqwest::Client,
 }
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    Loaded,
-    GeneratedAnswerDelta(String),
+    Loaded(mpsc::Sender<Vec<Message>>),
+    ErrorLoading(String),
+    GeneratedAnswerDelta(Message),
     FinishedGeneration,
 }
 
+#[derive(Debug)]
+enum State {
+    Loading,
+    Ready(mpsc::Receiver<Vec<Message>>),
+}
+
 impl Assistant {
-    pub fn new(model_name: String) -> Self {
-        let client = reqwest::blocking::Client::new();
-        let mut body = HashMap::new();
-        body.insert("model", model_name.clone()); 
-        let response = client.post("http://localhost:11434/api/pull").json(&body).send().unwrap();
-
-        #[derive(Deserialize)]
-        struct PullResponse {
-            status: String,
-        }
-        let response_json: PullResponse = response.json().unwrap();
-        if response_json.status == "success" {
-            println!("Succeeded downloading model {}", model_name);
-        } else {
-            println!("Failed downloading model {}", model_name)
-        }
-        Self {
-            model_name,
-            client,
-        }
+    pub async fn new(model: String) -> Self {
+        let client = reqwest::Client::new();
+        Self { model, client }
     }
 
-    pub fn generate_answer(&self, messages: &AssistantMessages) -> AssistantMessage {
-        let mut body = HashMap::new();
-        body.insert("model", self.model_name.clone()); 
-        body.insert("messages", serde_json::to_string(&messages).unwrap());
-        body.insert("stream", String::from_str("false").unwrap());
-        let response = self.client.post("http://localhost:11434/api/chat").json(&body).send().unwrap();
+    pub async fn pull_model(&self) -> Result<impl Stream<Item = Result<PullModelResponse>>> {
+        let body = PullModelRequest {
+            model: self.model.clone(),
+            insecure: false,
+            stream: true,
+        };
+        let serialized_body = serde_json::to_string(&body)?;
+        let response = self
+            .client
+            .post("http://localhost:11434/api/pull")
+            .timeout(Duration::from_secs(60))
+            .body(serialized_body)
+            .send()
+            .await?;
 
-        #[derive(Deserialize)]
-        struct ChatResponse {
-            model: String,
-            created_at: String,
-            message: AssistantMessage,
-            done: bool,
-            total_duration: u32,
-            load_duration: u32,
-            prompt_eval_count: u32,
-            prompt_eval_duration: u32,
-            eval_count: u32,
-            eval_duration: u32
+        if !response.status().is_success() {
+            return Err(Error::msg(response.text().await?));
         }
-        let response_json: ChatResponse = response.json().unwrap();
-        response_json.message
+
+        let stream = response.bytes_stream().map(|response| match response {
+            Ok(bytes) => {
+                let result = serde_json::from_slice::<PullModelResponse>(&bytes);
+                match result {
+                    Ok(result) => Ok(result),
+                    Err(_) => Err(Error::msg("Failed parsing response")),
+                }
+            }
+            Err(e) => Err(e.into()),
+        });
+        Ok(stream)
     }
+
+    pub async fn generate_answer(
+        &self,
+        messages: Vec<Message>,
+    ) -> Result<impl Stream<Item = Result<ChatResponse>>> {
+        let body = ChatRequest {
+            model: self.model.clone(),
+            messages: messages,
+            stream: true,
+        };
+        let serialized_body = serde_json::to_string(&body)?;
+        let response = self
+            .client
+            .post("http://localhost:11434/api/chat")
+            .timeout(Duration::from_secs(60))
+            .body(serialized_body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(Error::msg(response.text().await?));
+        }
+
+        let stream = response.bytes_stream().map(|response| match response {
+            Ok(bytes) => {
+                let result = serde_json::from_slice::<ChatResponse>(&bytes);
+                match result {
+                    Ok(result) => Ok(result),
+                    Err(_) => Err(Error::msg("Failed parsing response")),
+                }
+            }
+            Err(e) => Err(e.into()),
+        });
+        Ok(stream)
+    }
+}
+
+pub fn start_assistant(model: String) -> impl StreamExt<Item = Event> {
+    channel(100, |mut output| async move {
+        let mut state = State::Loading;
+
+        // Create the runtime
+        let rt = Runtime::new().unwrap();
+
+        // Spawn the root task
+        rt.block_on(async {
+
+            println!("Creating assistant");
+            let assistant: Assistant = Assistant::new(model).await;
+
+            println!("Pulling model");
+            /*
+            let response = match assistant.pull_model().await {
+                Ok(mut response) => {
+                    match response.try_next().await.unwrap() {
+                        Some(res) => res,
+                        None => {
+                            output.send(Event::ErrorLoading(
+                                String::from_str("Failed pulling model").unwrap(),
+                            )).await.unwrap();
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    output.send(Event::ErrorLoading(e.to_string())).await.unwrap();
+                    return;
+                }
+            };
+            println!("Pulled model with status: {}", response.status);
+            */
+
+            loop {
+                match &mut state {
+                    State::Loading => {
+                        println!("Assistant loading");
+                        let (sender, receiver) = mpsc::channel(1);
+                        output.send(Event::Loaded(sender)).await.unwrap();
+                        state = State::Ready(receiver);
+                    }
+                    State::Ready(receiver) => {
+                        futures::select! {
+                                messages = receiver.select_next_some() => {
+                                    dbg!("Received input messages: {}", &messages);
+                                    println!("Generating answer");
+                                    match assistant.generate_answer(messages).await {
+                                        Ok(mut response) => {
+                                            match response.try_next().await.unwrap() {
+                                                Some(delta) => {
+                                                    if !delta.done {
+                                                        output.send(Event::GeneratedAnswerDelta(delta.message.unwrap())).await.unwrap();
+                                                    } else {
+                                                        output.send(Event::FinishedGeneration).await.unwrap();
+                                                    }
+                                                },
+                                                None => {
+                                                    output.send(Event::ErrorLoading(String::from_str("Failed pulling model").unwrap())).await.unwrap();
+                                                    return;
+                                                }
+                                            };
+                                        }
+                                        Err(e) => {
+                                            output.send(Event::ErrorLoading(e.to_string())).await.unwrap();
+                                            return;
+                                        }
+                                    };
+                                }
+                        }
+                    }
+                }
+            }
+        })
+    })
 }
