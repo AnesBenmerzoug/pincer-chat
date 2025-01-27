@@ -1,0 +1,27 @@
+.system_message {
+    background: #ee6939;
+    margin: 0 1rem;
+    padding: 0.5rem;
+    border-radius: 10px;
+}
+
+.user_message {
+    background: #bdf6f8;
+    margin: 0 1rem;
+    padding: 0.5rem;
+    border-radius: 10px;
+}
+
+.assistant_message {
+    background: #ebc4b6;
+    margin: 0 1rem;
+    padding: 0.5rem;
+    border-radius: 10px;
+}
+
+.tool_message {
+    background: #ebc4b6;
+    margin: 0 1rem;
+    padding: 0.5rem;
+    border-radius: 10px;
+}

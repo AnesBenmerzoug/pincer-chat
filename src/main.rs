@@ -1,13 +1,17 @@
+mod assistant;
+
 use gtk::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
+
+use crate::assistant::types::{ Message, Role };
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 
 
 #[derive(Debug)]
 struct App {
-    messages: FactoryVecDeque<Message>,
+    messages: FactoryVecDeque<MessageComponent>,
     user_input: gtk::EntryBuffer,
 }
 
@@ -17,13 +21,13 @@ enum AppMsg {
 }
 
 #[derive(Debug)]
-struct Message {
-    content: String,
+struct MessageComponent {
+    message: Message
 }
 
 #[relm4::factory]
-impl FactoryComponent for Message {
-    type Init = String;
+impl FactoryComponent for MessageComponent {
+    type Init = Message;
     type Input = ();
     type Output = ();
     type CommandOutput = ();
@@ -31,12 +35,18 @@ impl FactoryComponent for Message {
 
     view! {
         gtk::Text {
-            set_text: &self.content,
+            set_text: &self.message.content,
+            add_css_class: match self.message.role {
+                Role::System => "system_message",
+                Role::User => "user_message",
+                Role::Assistant => "assistant_message",
+                Role::Tool => "tool_message",
+            }
         }
     }
 
-    fn init_model(content: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
-        Self { content }
+    fn init_model(message: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+        Self { message }
     }
 }
 
@@ -119,9 +129,11 @@ impl SimpleComponent for App {
                 let text = self.user_input.text();
                 if !text.is_empty() {
                     let mut guard = self.messages.guard();
-                    guard.push_back(text.to_string());
+                    guard.push_back(Message{content: text.to_string(), role: Role::User});
                     // clearing the entry value clears the entry widget
                     self.user_input.set_text("");
+                    // emulate assistant response
+                    guard.push_back(Message{content: "I am sorry but I do not know".to_string(), role: Role::Assistant});
                 }
             }
         }
@@ -130,5 +142,6 @@ impl SimpleComponent for App {
 
 fn main() {
     let relm = RelmApp::new(APP_ID);
+    relm4::set_global_css_from_file("assets/style.css").expect("Expected a stylesheet");
     relm.run::<App>(());
 }

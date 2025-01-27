@@ -4,19 +4,15 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use anyhow::{Error, Result};
-use futures::sink::SinkExt;
 use futures::stream::StreamExt;
 use futures::{Stream, TryStreamExt};
-use iced::futures::channel::mpsc;
-use iced::stream::channel;
 use reqwest;
 use serde_json;
-use tokio::runtime::Runtime;
 
 use crate::assistant::types::{
     ChatRequest, ChatResponse, Message, PullModelRequest, PullModelResponse,
 };
-
+/*
 #[derive(Debug)]
 pub struct Assistant {
     model: String,
@@ -188,3 +184,4 @@ pub fn start_assistant(model: String) -> impl StreamExt<Item = Event> {
         })
     })
 }
+ */
