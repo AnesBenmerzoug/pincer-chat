@@ -1,28 +1,30 @@
-mod assistant;
+mod ollama;
 
 use gtk::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
+use relm4_components;
 
-use crate::assistant::types::{ Message, Role };
+use crate::ollama::command::OllamaComponent;
+use crate::ollama::types::{Message, Role};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
-
 
 #[derive(Debug)]
 struct App {
     messages: FactoryVecDeque<MessageComponent>,
     user_input: gtk::EntryBuffer,
+    // ollama: Controller<OllamaComponent>,
 }
 
 #[derive(Debug)]
 enum AppMsg {
-    Submit
+    Submit,
 }
 
 #[derive(Debug)]
 struct MessageComponent {
-    message: Message
+    message: Message,
 }
 
 #[relm4::factory]
@@ -45,7 +47,11 @@ impl FactoryComponent for MessageComponent {
         }
     }
 
-    fn init_model(message: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+    fn init_model(
+        message: Self::Init,
+        _index: &DynamicIndex,
+        _sender: FactorySender<Self>,
+    ) -> Self {
         Self { message }
     }
 }
@@ -66,6 +72,22 @@ impl SimpleComponent for App {
                 set_orientation: gtk::Orientation::Vertical,
                 set_margin_all: 5,
                 set_spacing: 5,
+
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_margin_all: 5,
+                    set_spacing: 5,
+                    set_halign: gtk::Align::Fill,
+                    set_valign: gtk::Align::Start,
+
+                    gtk::Label {
+                        set_label: "Model",
+                    },
+                    gtk::DropDown::from_strings(&["deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
+                        set_hexpand: true,
+                        set_halign: gtk::Align::Fill,
+                    },
+                },
 
                 gtk::ScrolledWindow {
                     #[local]
@@ -90,7 +112,7 @@ impl SimpleComponent for App {
                     gtk::Entry {
                         set_buffer: &model.user_input,
                         set_tooltip_text: Some("Send a message"),
-                        set_placeholder_text: Some("Send a message"), 
+                        set_placeholder_text: Some("Send a message"),
                         connect_activate => AppMsg::Submit,
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
@@ -104,18 +126,23 @@ impl SimpleComponent for App {
         }
     }
 
-    fn init(
-        _: (),
-        root: Self::Root,
-        sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
+    fn init(_: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let factory_box = gtk::Box::default();
-        
+
         let messages = FactoryVecDeque::builder()
             .launch(factory_box.clone())
             .forward(sender.input_sender(), |_| AppMsg::Submit);
 
-        let model = App { messages: messages, user_input: gtk::EntryBuffer::default(), };
+        let model = App {
+            messages: messages,
+            user_input: gtk::EntryBuffer::default(),
+            /*
+            ollama: OllamaComponent::builder()
+                .transient_for(&root)
+                .launch()
+                .forward(sender.input_sender(), convert_alert_response),
+            */
+        };
 
         // Insert the macro code generation here
         let widgets = view_output!();
@@ -129,11 +156,17 @@ impl SimpleComponent for App {
                 let text = self.user_input.text();
                 if !text.is_empty() {
                     let mut guard = self.messages.guard();
-                    guard.push_back(Message{content: text.to_string(), role: Role::User});
+                    guard.push_back(Message {
+                        content: text.to_string(),
+                        role: Role::User,
+                    });
                     // clearing the entry value clears the entry widget
                     self.user_input.set_text("");
                     // emulate assistant response
-                    guard.push_back(Message{content: "I am sorry but I do not know".to_string(), role: Role::Assistant});
+                    guard.push_back(Message {
+                        content: "I am sorry but I do not know".to_string(),
+                        role: Role::Assistant,
+                    });
                 }
             }
         }
