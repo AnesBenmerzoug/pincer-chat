@@ -1,25 +1,36 @@
+mod components;
 mod ollama;
 
 use gtk::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
-use relm4_components;
+use relm4::MessageBroker;
+use tracing;
 
-use crate::ollama::command::OllamaComponent;
+use crate::components::ollama::OllamaComponent;
+use crate::components::ollama::{OllamaInputMsg, OllamaOutputMsg};
 use crate::ollama::types::{Message, Role};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
+static OLLAMA_BROKER: MessageBroker<OllamaInputMsg> = MessageBroker::new();
 
 #[derive(Debug)]
 struct App {
     messages: FactoryVecDeque<MessageComponent>,
     user_input: gtk::EntryBuffer,
-    // ollama: Controller<OllamaComponent>,
+    ollama: Controller<OllamaComponent>,
 }
 
 #[derive(Debug)]
-enum AppMsg {
+enum AppInputMsg {
+    SelectModel(String),
+    ReceivedAnswer(Message),
     Submit,
+}
+
+#[derive(Debug)]
+enum AppOutputMsg {
+    Submit(Message),
 }
 
 #[derive(Debug)]
@@ -59,8 +70,8 @@ impl FactoryComponent for MessageComponent {
 #[relm4::component]
 impl SimpleComponent for App {
     type Init = ();
-    type Input = AppMsg;
-    type Output = ();
+    type Input = AppInputMsg;
+    type Output = AppOutputMsg;
 
     view! {
         gtk::ApplicationWindow {
@@ -86,6 +97,10 @@ impl SimpleComponent for App {
                     gtk::DropDown::from_strings(&["deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
+                        connect_selected_notify[sender] => move |model_drop_down| {
+                            sender.input(AppInputMsg::SelectModel(
+                                model_drop_down.selected_item().unwrap().downcast::<gtk::StringObject>().unwrap().into()))
+                        },
                     },
                 },
 
@@ -113,13 +128,13 @@ impl SimpleComponent for App {
                         set_buffer: &model.user_input,
                         set_tooltip_text: Some("Send a message"),
                         set_placeholder_text: Some("Send a message"),
-                        connect_activate => AppMsg::Submit,
+                        connect_activate => AppInputMsg::Submit,
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
                     },
                     gtk::Button {
                         set_label: "Send",
-                        connect_clicked => AppMsg::Submit,
+                        connect_clicked => AppInputMsg::Submit,
                     }
                 }
             }
@@ -131,17 +146,18 @@ impl SimpleComponent for App {
 
         let messages = FactoryVecDeque::builder()
             .launch(factory_box.clone())
-            .forward(sender.input_sender(), |_| AppMsg::Submit);
+            .forward(sender.input_sender(), |_| AppInputMsg::Submit);
+
+        let ollama = OllamaComponent::builder()
+            .launch_with_broker((), &OLLAMA_BROKER)
+            .forward(sender.input_sender(), |output| match output {
+                OllamaOutputMsg::Answer(answer) => AppInputMsg::ReceivedAnswer(answer),
+            });
 
         let model = App {
             messages: messages,
             user_input: gtk::EntryBuffer::default(),
-            /*
-            ollama: OllamaComponent::builder()
-                .transient_for(&root)
-                .launch()
-                .forward(sender.input_sender(), convert_alert_response),
-            */
+            ollama: ollama,
         };
 
         // Insert the macro code generation here
@@ -150,30 +166,42 @@ impl SimpleComponent for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
-            AppMsg::Submit => {
+            AppInputMsg::SelectModel(model) => {
+                println!("selected model {}", model);
+            }
+            AppInputMsg::Submit => {
                 let text = self.user_input.text();
                 if !text.is_empty() {
-                    let mut guard = self.messages.guard();
-                    guard.push_back(Message {
+                    let message = Message {
                         content: text.to_string(),
                         role: Role::User,
-                    });
+                    };
+                    OLLAMA_BROKER.send(OllamaInputMsg::Chat(message.clone()));
+                    let mut guard = self.messages.guard();
+                    guard.push_back(message);
                     // clearing the entry value clears the entry widget
                     self.user_input.set_text("");
-                    // emulate assistant response
-                    guard.push_back(Message {
-                        content: "I am sorry but I do not know".to_string(),
-                        role: Role::Assistant,
-                    });
                 }
+            }
+            AppInputMsg::ReceivedAnswer(answer) => {
+                let mut guard = self.messages.guard();
+                guard.push_back(answer);
             }
         }
     }
 }
 
 fn main() {
+    // Show traces to find potential performance bottlenecks, for example
+    tracing_subscriber::fmt()
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+        .with_max_level(tracing::Level::TRACE)
+        .init();
+
+    tracing::info!("Starting application!");
+
     let relm = RelmApp::new(APP_ID);
     relm4::set_global_css_from_file("assets/style.css").expect("Expected a stylesheet");
     relm.run::<App>(());

@@ -12,19 +12,21 @@ use crate::ollama::types::{
 
 #[derive(Debug)]
 pub struct OllamaClient {
-    model: String,
     client: reqwest::Client,
 }
 
 impl OllamaClient {
-    pub fn new(model: String) -> Self {
+    pub fn new() -> Self {
         let client = reqwest::Client::new();
-        Self { model, client }
+        Self { client }
     }
 
-    pub async fn pull_model(&self) -> Result<impl Stream<Item = Result<PullModelResponse>>> {
+    pub async fn pull_model(
+        &self,
+        model: String,
+    ) -> Result<impl Stream<Item = Result<PullModelResponse>>> {
         let body = PullModelRequest {
-            model: self.model.clone(),
+            model: model.clone(),
             insecure: false,
             stream: true,
         };
@@ -54,12 +56,13 @@ impl OllamaClient {
         Ok(stream)
     }
 
-    pub async fn generate_answer(
+    pub async fn chat(
         &self,
+        model: String,
         messages: Vec<Message>,
     ) -> Result<impl Stream<Item = Result<ChatResponse>>> {
         let body = ChatRequest {
-            model: self.model.clone(),
+            model: model.clone(),
             messages: messages,
             stream: true,
         };
