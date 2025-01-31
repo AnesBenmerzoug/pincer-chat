@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Error, Result};
 use futures::stream::StreamExt;
-use futures::{Stream, TryStreamExt};
+use futures::Stream;
 use reqwest;
 use serde_json;
 
