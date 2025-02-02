@@ -1,14 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub enum Role {
+    #[serde(alias = "system")]
     System,
+    #[serde(alias = "user")]
     User,
+    #[default]
+    #[serde(alias = "assistant")]
     Assistant,
+    #[serde(alias = "tool")]
     Tool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     pub content: String,
@@ -37,16 +42,16 @@ pub struct ChatRequest {
     pub stream: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct ChatResponse {
     pub model: String,
     pub created_at: String,
-    pub message: Option<Message>,
+    pub message: Message,
     pub done: bool,
-    pub total_duration: u32,
-    pub load_duration: u32,
-    pub prompt_eval_count: u32,
-    pub prompt_eval_duration: u32,
-    pub eval_count: u32,
-    pub eval_duration: u32,
+    pub total_duration: Option<u32>,
+    pub load_duration: Option<u32>,
+    pub prompt_eval_count: Option<u32>,
+    pub prompt_eval_duration: Option<u32>,
+    pub eval_count: Option<u32>,
+    pub eval_duration: Option<u32>,
 }

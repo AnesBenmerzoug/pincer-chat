@@ -4,7 +4,6 @@ mod ollama;
 use gtk::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
-use relm4::MessageBroker;
 use tracing;
 
 use crate::components::ollama::OllamaComponent;
@@ -12,18 +11,20 @@ use crate::components::ollama::{OllamaInputMsg, OllamaOutputMsg};
 use crate::ollama::types::{Message, Role};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
-static OLLAMA_BROKER: MessageBroker<OllamaInputMsg> = MessageBroker::new();
+const NO_MODEL_DROP_DOWN_VALUE: &str = "-";
 
 #[derive(Debug)]
 struct App {
     messages: FactoryVecDeque<MessageComponent>,
     user_input: gtk::EntryBuffer,
+    model: Option<String>,
     ollama: Controller<OllamaComponent>,
 }
 
 #[derive(Debug)]
 enum AppInputMsg {
     SelectModel(String),
+    PulledModel(String),
     ReceivedAnswer(Message),
     Submit,
 }
@@ -94,7 +95,7 @@ impl SimpleComponent for App {
                     gtk::Label {
                         set_label: "Model",
                     },
-                    gtk::DropDown::from_strings(&["deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
+                    gtk::DropDown::from_strings(&[NO_MODEL_DROP_DOWN_VALUE, "deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
                         connect_selected_notify[sender] => move |model_drop_down| {
@@ -148,15 +149,18 @@ impl SimpleComponent for App {
             .launch(factory_box.clone())
             .forward(sender.input_sender(), |_| AppInputMsg::Submit);
 
-        let ollama = OllamaComponent::builder()
-            .launch_with_broker((), &OLLAMA_BROKER)
-            .forward(sender.input_sender(), |output| match output {
-                OllamaOutputMsg::Answer(answer) => AppInputMsg::ReceivedAnswer(answer),
-            });
+        let ollama =
+            OllamaComponent::builder()
+                .launch(())
+                .forward(sender.input_sender(), |output| match output {
+                    OllamaOutputMsg::Answer(answer) => AppInputMsg::ReceivedAnswer(answer),
+                    OllamaOutputMsg::PulledModel(model) => AppInputMsg::PulledModel(model),
+                });
 
         let model = App {
             messages: messages,
             user_input: gtk::EntryBuffer::default(),
+            model: None,
             ollama: ollama,
         };
 
@@ -169,16 +173,33 @@ impl SimpleComponent for App {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             AppInputMsg::SelectModel(model) => {
-                println!("selected model {}", model);
+                tracing::info!("selected model {}", model);
+                if model != NO_MODEL_DROP_DOWN_VALUE {
+                    self.ollama
+                        .sender()
+                        .send(OllamaInputMsg::Pull(model))
+                        .expect("Message to be sent to Ollama Component");
+                }
+            }
+            AppInputMsg::PulledModel(model) => {
+                tracing::info!("pulled model {}", model);
+                self.model = Some(model.clone());
             }
             AppInputMsg::Submit => {
                 let text = self.user_input.text();
-                if !text.is_empty() {
+                if !text.is_empty() && self.model.is_some() {
+                    tracing::info!("Submitting user input {}", text.to_string());
                     let message = Message {
                         content: text.to_string(),
                         role: Role::User,
                     };
-                    OLLAMA_BROKER.send(OllamaInputMsg::Chat(message.clone()));
+                    self.ollama
+                        .sender()
+                        .send(OllamaInputMsg::Chat(
+                            self.model.clone().expect("Model to be set"),
+                            message.clone(),
+                        ))
+                        .expect("Message to be sent to Ollama Component");
                     let mut guard = self.messages.guard();
                     guard.push_back(message);
                     // clearing the entry value clears the entry widget
