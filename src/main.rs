@@ -6,6 +6,7 @@ use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
 use tracing;
 
+use crate::components::message::MessageComponent;
 use crate::components::ollama::OllamaComponent;
 use crate::components::ollama::{OllamaInputMsg, OllamaOutputMsg};
 use crate::ollama::types::{Message, Role};
@@ -25,54 +26,16 @@ struct App {
 enum AppInputMsg {
     SelectModel(String),
     PulledModel(String),
-    ReceivedAnswer(Message),
+    NewAssistantAnswer,
+    ReceivingAnswer(Message),
     Submit,
-}
-
-#[derive(Debug)]
-enum AppOutputMsg {
-    Submit(Message),
-}
-
-#[derive(Debug)]
-struct MessageComponent {
-    message: Message,
-}
-
-#[relm4::factory]
-impl FactoryComponent for MessageComponent {
-    type Init = Message;
-    type Input = ();
-    type Output = ();
-    type CommandOutput = ();
-    type ParentWidget = gtk::Box;
-
-    view! {
-        gtk::Text {
-            set_text: &self.message.content,
-            add_css_class: match self.message.role {
-                Role::System => "system_message",
-                Role::User => "user_message",
-                Role::Assistant => "assistant_message",
-                Role::Tool => "tool_message",
-            }
-        }
-    }
-
-    fn init_model(
-        message: Self::Init,
-        _index: &DynamicIndex,
-        _sender: FactorySender<Self>,
-    ) -> Self {
-        Self { message }
-    }
 }
 
 #[relm4::component]
 impl SimpleComponent for App {
     type Init = ();
     type Input = AppInputMsg;
-    type Output = AppOutputMsg;
+    type Output = ();
 
     view! {
         gtk::ApplicationWindow {
@@ -153,8 +116,9 @@ impl SimpleComponent for App {
             OllamaComponent::builder()
                 .launch(())
                 .forward(sender.input_sender(), |output| match output {
-                    OllamaOutputMsg::Answer(answer) => AppInputMsg::ReceivedAnswer(answer),
                     OllamaOutputMsg::PulledModel(model) => AppInputMsg::PulledModel(model),
+                    OllamaOutputMsg::StartedGeneration => AppInputMsg::NewAssistantAnswer,
+                    OllamaOutputMsg::Generating(answer) => AppInputMsg::ReceivingAnswer(answer),
                 });
 
         let model = App {
@@ -170,7 +134,7 @@ impl SimpleComponent for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
+    fn update(&mut self, msg: Self::Input, _: ComponentSender<Self>) {
         match msg {
             AppInputMsg::SelectModel(model) => {
                 tracing::info!("selected model {}", model);
@@ -193,6 +157,12 @@ impl SimpleComponent for App {
                         content: text.to_string(),
                         role: Role::User,
                     };
+                    let mut guard = self.messages.guard();
+                    guard.push_back(message.clone());
+                    // clearing the entry value clears the entry widget
+                    self.user_input.set_text("");
+
+                    tracing::info!("Sending user input to assistant");
                     self.ollama
                         .sender()
                         .send(OllamaInputMsg::Chat(
@@ -200,15 +170,22 @@ impl SimpleComponent for App {
                             message.clone(),
                         ))
                         .expect("Message to be sent to Ollama Component");
-                    let mut guard = self.messages.guard();
-                    guard.push_back(message);
-                    // clearing the entry value clears the entry widget
-                    self.user_input.set_text("");
                 }
             }
-            AppInputMsg::ReceivedAnswer(answer) => {
+            AppInputMsg::NewAssistantAnswer => {
                 let mut guard = self.messages.guard();
-                guard.push_back(answer);
+                guard.push_back(Message {
+                    content: String::new(),
+                    role: Role::Assistant,
+                });
+            }
+            AppInputMsg::ReceivingAnswer(answer) => {
+                let mut guard = self.messages.guard();
+                guard
+                    .back_mut()
+                    .expect("There should be at least one previous message")
+                    .replace_message(answer)
+                    .expect("Replacing message should work");
             }
         }
     }
