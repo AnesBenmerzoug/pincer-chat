@@ -67,13 +67,13 @@ impl SimpleComponent for App {
                         },
                     },
                 },
-
+                
                 gtk::ScrolledWindow {
                     #[local]
                     factory_box -> gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
-                        set_margin_all: 5,
-                        set_spacing: 5,
+                        set_margin_all: 10,
+                        set_spacing: 10,
                         set_hexpand: true,
                         set_vexpand: true,
                         set_halign: gtk::Align::Fill,

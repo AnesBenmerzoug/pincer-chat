@@ -34,6 +34,7 @@ impl FactoryComponent for MessageComponent {
             #[watch]
             set_buffer: Some(&self.buffer),
             set_focusable: false,
+            set_wrap_mode: gtk::WrapMode::Word,
             add_css_class: match self.message.role {
                 Role::System => "system_message",
                 Role::User => "user_message",
