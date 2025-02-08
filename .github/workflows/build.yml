@@ -33,6 +33,6 @@ jobs:
         path: |
           tree.txt
     - name: Build
-      run: cargo build
+      run: cargo build -v
     # - name: Test
     #   run: cargo test
