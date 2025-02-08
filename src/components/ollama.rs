@@ -20,17 +20,19 @@ pub enum OllamaInputMsg {
 }
 
 #[derive(Debug)]
-pub enum OllamaOutputMsg {
+pub enum OllamaCmdMsg {
+    ChatAnswerStart,
+    ChatAnswerChunk(Message),
+    ChatAnswerEnd,
     PulledModel(String),
-    StartedGeneration,
-    Generating(Message),
 }
 
 #[derive(Debug)]
-pub enum OllamaCmdMsg {
-    ChatAnswerStart,
-    ChatAnswerDelta(Message),
+pub enum OllamaOutputMsg {
     PulledModel(String),
+    ChatAnswerStart,
+    ChatAnswerChunk(Message),
+    ChatAnswerEnd,
 }
 
 impl Component for OllamaComponent {
@@ -72,7 +74,7 @@ impl Component for OllamaComponent {
                                             Err(e) => {
                                                 tracing::error!("Failed generating answer {}", e);
 
-                                                out.send(OllamaCmdMsg::ChatAnswerDelta(Message {
+                                                out.send(OllamaCmdMsg::ChatAnswerChunk(Message {
                                                     content: "I am sorry. I am having issues generating an answer".to_string(),
                                                     role: Role::Assistant,
                                                 })).expect("Message to be sent in channel");
@@ -87,7 +89,7 @@ impl Component for OllamaComponent {
                                                 if chat_response.done != true {
                                                     let answer_delta = &*chat_response.message.content;
                                                     tracing::info!("Received answer delta {}", answer_delta);
-                                                    out.send(OllamaCmdMsg::ChatAnswerDelta(chat_response.message)).expect("Message to be sent in channel");
+                                                    out.send(OllamaCmdMsg::ChatAnswerChunk(chat_response.message)).expect("Message to be sent in channel");
                                                 }
                                             }
                                             Err(e) => {
@@ -101,6 +103,7 @@ impl Component for OllamaComponent {
                                         },
                                     };
                                 };
+                                out.send(OllamaCmdMsg::ChatAnswerEnd).expect("Message to be sent in channel");
                             })
                             // Perform task until a shutdown interrupts it
                             .drop_on_shutdown()
@@ -168,10 +171,10 @@ impl Component for OllamaComponent {
                     role: Role::Assistant,
                 });
                 sender
-                    .output(OllamaOutputMsg::StartedGeneration)
+                    .output(OllamaOutputMsg::ChatAnswerStart)
                     .expect("Message to be sent to App");
             }
-            OllamaCmdMsg::ChatAnswerDelta(message) => {
+            OllamaCmdMsg::ChatAnswerChunk(message) => {
                 self.messages
                     .last_mut()
                     .expect("There should be a last element")
@@ -183,7 +186,12 @@ impl Component for OllamaComponent {
                     .expect("There should be a last element")
                     .clone();
                 sender
-                    .output(OllamaOutputMsg::Generating(updated_message))
+                    .output(OllamaOutputMsg::ChatAnswerChunk(updated_message))
+                    .expect("Message to be sent to App");
+            }
+            OllamaCmdMsg::ChatAnswerEnd => {
+                sender
+                    .output(OllamaOutputMsg::ChatAnswerEnd)
                     .expect("Message to be sent to App");
             }
         }

@@ -13,21 +13,29 @@ use crate::ollama::types::{Message, Role};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 
-
 #[derive(Debug)]
 struct App {
+    state: AppState,
     messages: FactoryVecDeque<MessageComponent>,
     user_input: gtk::EntryBuffer,
     model: Option<String>,
     ollama: Controller<OllamaComponent>,
 }
 
+#[derive(Debug, Clone)]
+enum AppState {
+    PullingModel,
+    WaitingForUserInput,
+    ReceivingAnswer,
+}
+
 #[derive(Debug)]
 enum AppInputMsg {
     SelectModel(String),
     PulledModel(String),
-    NewAssistantAnswer,
-    ReceivingAnswer(Message),
+    AssistantAnswerStart,
+    AssistantAnswerChunk(Message),
+    AssistantAnswerEnd,
     Submit,
 }
 
@@ -47,7 +55,7 @@ impl SimpleComponent for App {
                 set_orientation: gtk::Orientation::Vertical,
                 set_margin_all: 5,
                 set_spacing: 5,
-                set_css_classes: &["application"],
+                set_css_classes: &["main_container"],
 
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
@@ -63,6 +71,11 @@ impl SimpleComponent for App {
                     gtk::DropDown::from_strings(&["deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
+                        #[watch]
+                        set_can_target: match model.state {
+                            AppState::PullingModel | AppState::ReceivingAnswer => false,
+                            _ => true,
+                        },
                         connect_selected_notify[sender] => move |model_drop_down| {
                             sender.input(AppInputMsg::SelectModel(
                                 model_drop_down
@@ -102,16 +115,25 @@ impl SimpleComponent for App {
                         set_placeholder_text: Some("Send a message"),
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
+                        #[watch]
+                        set_can_target: match model.state {
+                            AppState::PullingModel | AppState::ReceivingAnswer => false,
+                            _ => true,
+                        },
                         connect_activate => AppInputMsg::Submit,
                     },
                     gtk::Button {
                         set_label: "Send",
-                        #[block_signal(submit_handler)]
                         set_css_classes: &["submit_button"],
+                        #[watch]
+                        set_can_target: match model.state {
+                            AppState::PullingModel | AppState::ReceivingAnswer => false,
+                            _ => true,
+                        },
 
                         connect_clicked[sender] => move |_| {
                             sender.input(AppInputMsg::Submit);
-                        } @submit_handler,
+                        },
                     }
                 }
             }
@@ -130,11 +152,13 @@ impl SimpleComponent for App {
                 .launch(())
                 .forward(sender.input_sender(), |output| match output {
                     OllamaOutputMsg::PulledModel(model) => AppInputMsg::PulledModel(model),
-                    OllamaOutputMsg::StartedGeneration => AppInputMsg::NewAssistantAnswer,
-                    OllamaOutputMsg::Generating(answer) => AppInputMsg::ReceivingAnswer(answer),
+                    OllamaOutputMsg::ChatAnswerStart => AppInputMsg::AssistantAnswerStart,
+                    OllamaOutputMsg::ChatAnswerChunk(answer) => AppInputMsg::AssistantAnswerChunk(answer),
+                    OllamaOutputMsg::ChatAnswerEnd => AppInputMsg::AssistantAnswerEnd,
                 });
 
         let model = App {
+            state: AppState::WaitingForUserInput,
             messages: messages,
             user_input: gtk::EntryBuffer::default(),
             model: None,
@@ -164,10 +188,12 @@ impl SimpleComponent for App {
                     .sender()
                     .send(OllamaInputMsg::Pull(model))
                     .expect("Message to be sent to Ollama Component");
+                self.state = AppState::PullingModel;
             }
             AppInputMsg::PulledModel(model) => {
                 tracing::info!("pulled model {}", model);
                 self.model = Some(model.clone());
+                self.state = AppState::WaitingForUserInput;
             }
             AppInputMsg::Submit => {
                 let text = self.user_input.text();
@@ -190,16 +216,19 @@ impl SimpleComponent for App {
                             message.clone(),
                         ))
                         .expect("Message to be sent to Ollama Component");
+                    self.state = AppState::ReceivingAnswer;
                 }
             }
-            AppInputMsg::NewAssistantAnswer => {
+            AppInputMsg::AssistantAnswerStart => {
+                tracing::info!("Starting to receive answer");
                 let mut guard = self.messages.guard();
                 guard.push_back(Message {
                     content: String::new(),
                     role: Role::Assistant,
                 });
             }
-            AppInputMsg::ReceivingAnswer(answer) => {
+            AppInputMsg::AssistantAnswerChunk(answer) => {
+                tracing::info!("Receiving answer chunk");
                 let mut guard = self.messages.guard();
                 guard
                     .back_mut()
@@ -207,14 +236,21 @@ impl SimpleComponent for App {
                     .replace_message(answer)
                     .expect("Replacing message should work");
             }
+            AppInputMsg::AssistantAnswerEnd => {
+                tracing::info!("Finished receiving answer");
+                self.state = AppState::WaitingForUserInput;
+            }
         }
     }
 }
 
 fn load_css(settings: &gtk::Settings) {
-    let theme_name = settings.gtk_theme_name().expect("Could not get theme name.");
+    let theme_name = settings
+        .gtk_theme_name()
+        .expect("Could not get theme name.");
 
-    if theme_name.to_lowercase().contains("dark") || settings.is_gtk_application_prefer_dark_theme() {
+    if theme_name.to_lowercase().contains("dark") || settings.is_gtk_application_prefer_dark_theme()
+    {
         relm4::set_global_css_from_file("assets/dark.css").expect("Expected a stylesheet");
     } else {
         relm4::set_global_css_from_file("assets/light.css").expect("Expected a stylesheet");
@@ -234,6 +270,6 @@ fn main() {
     let settings = gtk::Settings::default().expect("Accessing settings should work");
     settings.connect_gtk_application_prefer_dark_theme_notify(load_css);
     settings.connect_gtk_theme_name_notify(load_css);
-    
+
     relm_app.run::<App>(());
 }

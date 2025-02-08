@@ -6,17 +6,16 @@ use crate::ollama::types::{Message, Role};
 
 #[derive(Debug)]
 pub struct MessageComponent {
-    message: Message,
     buffer: gtk::TextBuffer,
+    role: Role,
 }
 
 impl MessageComponent {
     pub fn replace_message(&mut self, other: Message) -> Result<()> {
-        if self.message.role != other.role {
+        if self.role != other.role {
             return Err(anyhow!("the two message roles should be the same"));
         }
-        self.message = other;
-        self.buffer.set_text(&*self.message.content);
+        self.buffer.set_text(&*other.content);
         Ok(())
     }
 }
@@ -35,12 +34,12 @@ impl FactoryComponent for MessageComponent {
             set_buffer: Some(&self.buffer),
             set_focusable: false,
             set_editable: false,
-            set_justification: match self.message.role {
+            set_justification: match self.role {
                 Role::User => gtk::Justification::Right,
                 _ => gtk::Justification::Left,
             },
             set_wrap_mode: gtk::WrapMode::Word,
-            add_css_class: match self.message.role {
+            add_css_class: match self.role {
                 Role::System => "system_message",
                 Role::User => "user_message",
                 Role::Assistant => "assistant_message",
@@ -56,6 +55,7 @@ impl FactoryComponent for MessageComponent {
     ) -> Self {
         let buffer = gtk::TextBuffer::default();
         buffer.set_text(&*message.content);
-        Self { message, buffer }
+        let role = message.role;
+        Self { buffer, role }
     }
 }
