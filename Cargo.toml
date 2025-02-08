@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.95"
+chrono = "0.4.39"
 futures = "0.3.31"
 relm4 = { version = "0.9.1", features = ["macros"] }
 relm4-components = "0.9.1"
