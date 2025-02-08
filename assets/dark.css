@@ -1,0 +1,37 @@
+.application {
+    background: #000000;
+}
+
+.system_message,
+.user_message,
+.assistant_message,
+.tool_message {
+    margin: 0 5rem 0 1rem;
+    padding: 0.5rem;
+    border-radius: 10px;
+}
+
+.system_message {
+    background: #F48F4B;
+    color: #FFFFFF;
+}
+
+.user_message {
+    background: #F3F5F7;
+    margin: 0 1rem 0 3rem;
+}
+
+.assistant_message {
+    background: #55B1F4;
+    color: #FFFFFF;
+}
+
+.tool_message {
+    background: #99ccf1;
+    color: #FFFFFF;
+}
+
+.submit_button {
+    background: #766AA6;
+    color: #FFFFFF;
+}

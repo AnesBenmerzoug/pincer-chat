@@ -34,6 +34,11 @@ impl FactoryComponent for MessageComponent {
             #[watch]
             set_buffer: Some(&self.buffer),
             set_focusable: false,
+            set_editable: false,
+            set_justification: match self.message.role {
+                Role::User => gtk::Justification::Right,
+                _ => gtk::Justification::Left,
+            },
             set_wrap_mode: gtk::WrapMode::Word,
             add_css_class: match self.message.role {
                 Role::System => "system_message",
@@ -51,9 +56,6 @@ impl FactoryComponent for MessageComponent {
     ) -> Self {
         let buffer = gtk::TextBuffer::default();
         buffer.set_text(&*message.content);
-        Self {
-            message,
-            buffer,
-        }
+        Self { message, buffer }
     }
 }

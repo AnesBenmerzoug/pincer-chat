@@ -12,7 +12,7 @@ use crate::components::ollama::{OllamaInputMsg, OllamaOutputMsg};
 use crate::ollama::types::{Message, Role};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
-const NO_MODEL_DROP_DOWN_VALUE: &str = "-";
+
 
 #[derive(Debug)]
 struct App {
@@ -47,6 +47,7 @@ impl SimpleComponent for App {
                 set_orientation: gtk::Orientation::Vertical,
                 set_margin_all: 5,
                 set_spacing: 5,
+                set_css_classes: &["application"],
 
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
@@ -58,25 +59,32 @@ impl SimpleComponent for App {
                     gtk::Label {
                         set_label: "Model",
                     },
-                    gtk::DropDown::from_strings(&[NO_MODEL_DROP_DOWN_VALUE, "deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
+                    #[name = "model_selection_drop_down"]
+                    gtk::DropDown::from_strings(&["deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
                         connect_selected_notify[sender] => move |model_drop_down| {
                             sender.input(AppInputMsg::SelectModel(
-                                model_drop_down.selected_item().unwrap().downcast::<gtk::StringObject>().unwrap().into()))
+                                model_drop_down
+                                .selected_item()
+                                .expect("Getting selected item from dropdown should work")
+                                .downcast::<gtk::StringObject>()
+                                .expect("Conversion of gtk StringObject to String should work")
+                                .into()))
                         },
                     },
                 },
-                
                 gtk::ScrolledWindow {
+                    set_hscrollbar_policy: gtk::PolicyType::Never,
+
                     #[local]
                     factory_box -> gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
                         set_margin_all: 10,
                         set_spacing: 10,
-                        set_hexpand: true,
+                        set_hexpand: false,
                         set_vexpand: true,
-                        set_halign: gtk::Align::Fill,
+                        // set_halign: gtk::Align::Fill,
                         set_valign: gtk::Align::Fill,
                     },
                 },
@@ -92,13 +100,18 @@ impl SimpleComponent for App {
                         set_buffer: &model.user_input,
                         set_tooltip_text: Some("Send a message"),
                         set_placeholder_text: Some("Send a message"),
-                        connect_activate => AppInputMsg::Submit,
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
+                        connect_activate => AppInputMsg::Submit,
                     },
                     gtk::Button {
                         set_label: "Send",
-                        connect_clicked => AppInputMsg::Submit,
+                        #[block_signal(submit_handler)]
+                        set_css_classes: &["submit_button"],
+
+                        connect_clicked[sender] => move |_| {
+                            sender.input(AppInputMsg::Submit);
+                        } @submit_handler,
                     }
                 }
             }
@@ -131,6 +144,15 @@ impl SimpleComponent for App {
         // Insert the macro code generation here
         let widgets = view_output!();
 
+        let default_model = widgets
+            .model_selection_drop_down
+            .selected_item()
+            .unwrap()
+            .downcast::<gtk::StringObject>()
+            .unwrap()
+            .into();
+        sender.input(AppInputMsg::SelectModel(default_model));
+
         ComponentParts { model, widgets }
     }
 
@@ -138,12 +160,10 @@ impl SimpleComponent for App {
         match msg {
             AppInputMsg::SelectModel(model) => {
                 tracing::info!("selected model {}", model);
-                if model != NO_MODEL_DROP_DOWN_VALUE {
-                    self.ollama
-                        .sender()
-                        .send(OllamaInputMsg::Pull(model))
-                        .expect("Message to be sent to Ollama Component");
-                }
+                self.ollama
+                    .sender()
+                    .send(OllamaInputMsg::Pull(model))
+                    .expect("Message to be sent to Ollama Component");
             }
             AppInputMsg::PulledModel(model) => {
                 tracing::info!("pulled model {}", model);
@@ -191,6 +211,16 @@ impl SimpleComponent for App {
     }
 }
 
+fn load_css(settings: &gtk::Settings) {
+    let theme_name = settings.gtk_theme_name().expect("Could not get theme name.");
+
+    if theme_name.to_lowercase().contains("dark") || settings.is_gtk_application_prefer_dark_theme() {
+        relm4::set_global_css_from_file("assets/dark.css").expect("Expected a stylesheet");
+    } else {
+        relm4::set_global_css_from_file("assets/light.css").expect("Expected a stylesheet");
+    }
+}
+
 fn main() {
     // Show traces to find potential performance bottlenecks, for example
     tracing_subscriber::fmt()
@@ -199,8 +229,11 @@ fn main() {
         .init();
 
     tracing::info!("Starting application!");
+    let relm_app = RelmApp::new(APP_ID);
 
-    let relm = RelmApp::new(APP_ID);
-    relm4::set_global_css_from_file("assets/style.css").expect("Expected a stylesheet");
-    relm.run::<App>(());
+    let settings = gtk::Settings::default().expect("Accessing settings should work");
+    settings.connect_gtk_application_prefer_dark_theme_notify(load_css);
+    settings.connect_gtk_theme_name_notify(load_css);
+    
+    relm_app.run::<App>(());
 }
