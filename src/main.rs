@@ -153,7 +153,9 @@ impl SimpleComponent for App {
                 .forward(sender.input_sender(), |output| match output {
                     OllamaOutputMsg::PulledModel(model) => AppInputMsg::PulledModel(model),
                     OllamaOutputMsg::ChatAnswerStart => AppInputMsg::AssistantAnswerStart,
-                    OllamaOutputMsg::ChatAnswerChunk(answer) => AppInputMsg::AssistantAnswerChunk(answer),
+                    OllamaOutputMsg::ChatAnswerChunk(answer) => {
+                        AppInputMsg::AssistantAnswerChunk(answer)
+                    }
                     OllamaOutputMsg::ChatAnswerEnd => AppInputMsg::AssistantAnswerEnd,
                 });
 
