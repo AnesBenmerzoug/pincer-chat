@@ -6,6 +6,10 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.95"
 chrono = "0.4.39"
+diesel = { version = "2.2.7", features = [
+    "sqlite",
+    "returning_clauses_for_sqlite_3_35",
+] }
 futures = "0.3.31"
 relm4 = { version = "0.9.1", features = ["macros"] }
 relm4-components = "0.9.1"
