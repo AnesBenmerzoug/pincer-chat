@@ -1,0 +1,12 @@
+.system_message,
+.user_message,
+.assistant_message,
+.tool_message {
+    margin: 0 10rem 0 1rem;
+    padding: 0.5rem;
+    border-radius: 10px;
+}
+
+.user_message {
+    margin: 0 1rem 0 10rem;
+}

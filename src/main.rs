@@ -249,6 +249,10 @@ fn load_css(settings: &gtk::Settings) {
         .gtk_theme_name()
         .expect("Could not get theme name.");
 
+    // Load common style sheet
+    relm4::set_global_css_from_file("assets/common.css").expect("Expected a stylesheet");
+
+    // Load mode-specific style sheet
     if theme_name.to_lowercase().contains("dark") || settings.is_gtk_application_prefer_dark_theme()
     {
         relm4::set_global_css_from_file("assets/dark.css").expect("Expected a stylesheet");
@@ -270,6 +274,7 @@ fn main() {
     let settings = gtk::Settings::default().expect("Accessing settings should work");
     settings.connect_gtk_application_prefer_dark_theme_notify(load_css);
     settings.connect_gtk_theme_name_notify(load_css);
+    load_css(&settings);
 
     relm_app.run::<App>(());
 }
