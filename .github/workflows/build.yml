@@ -22,7 +22,6 @@ jobs:
     - name: Install packages
       run: |
         sudo dnf install -y openssl-devel
-        openssl version
     - name: Dependency Tree
       run: |
         cargo install cargo-tree
