@@ -21,7 +21,6 @@ jobs:
     # The gtk4:latest image is based on fedora:latest
     - name: Install packages
       run: |
-        sudo dnf update
         sudo dnf install -y openssl-devel
         openssl version
     - name: Dependency Tree
