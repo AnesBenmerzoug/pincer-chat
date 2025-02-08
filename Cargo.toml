@@ -11,6 +11,7 @@ diesel = { version = "2.2.7", features = [
     "returning_clauses_for_sqlite_3_35",
 ] }
 futures = "0.3.31"
+home = "0.5.11"
 relm4 = { version = "0.9.1", features = ["macros"] }
 relm4-components = "0.9.1"
 reqwest = { version = "0.12.12", features = ["blocking", "json", "stream"] }
