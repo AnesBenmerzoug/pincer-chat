@@ -24,6 +24,16 @@ jobs:
         sudo dnf update
         sudo dnf install openssl-devel
         openssl version
+    - name: Dependency Tree
+      run: |
+        cargo install cargo-tree
+        cargo-tree tree > tree.txt
+    - name: Archive dependency tree
+      uses: actions/upload-artifact@v4
+      with:
+        name: cargo-tree
+        path: |
+          tree.txt
     - name: Build
       run: cargo build
     # - name: Test
