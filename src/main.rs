@@ -6,6 +6,7 @@ use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
 use tracing;
 
+use crate::components::chat_input;
 use crate::components::message::MessageComponent;
 use crate::components::ollama::OllamaComponent;
 use crate::components::ollama::{OllamaInputMsg, OllamaOutputMsg};
@@ -17,7 +18,7 @@ const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 struct App {
     state: AppState,
     messages: FactoryVecDeque<MessageComponent>,
-    user_input: gtk::EntryBuffer,
+    chat_input: Controller<chat_input::ChatInputComponent>,
     model: Option<String>,
     ollama: Controller<OllamaComponent>,
 }
@@ -36,7 +37,7 @@ enum AppInputMsg {
     AssistantAnswerStart,
     AssistantAnswerChunk(Message),
     AssistantAnswerEnd,
-    Submit,
+    Submit(String),
 }
 
 #[relm4::component]
@@ -57,7 +58,6 @@ impl SimpleComponent for App {
                 set_spacing: 5,
                 set_css_classes: &["main_container"],
 
-                
                 // Model Selection
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
@@ -105,40 +105,9 @@ impl SimpleComponent for App {
                     },
                 },
 
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_margin_all: 5,
-                    set_spacing: 5,
-                    set_halign: gtk::Align::Fill,
-                    set_valign: gtk::Align::End,
-
-                    gtk::Entry {
-                        set_buffer: &model.user_input,
-                        set_tooltip_text: Some("Send a message"),
-                        set_placeholder_text: Some("Send a message"),
-                        set_hexpand: true,
-                        set_halign: gtk::Align::Fill,
-                        #[watch]
-                        set_can_target: match model.state {
-                            AppState::PullingModel | AppState::ReceivingAnswer => false,
-                            _ => true,
-                        },
-                        connect_activate => AppInputMsg::Submit,
-                    },
-                    gtk::Button {
-                        set_label: "Send",
-                        set_css_classes: &["submit_button"],
-                        #[watch]
-                        set_can_target: match model.state {
-                            AppState::PullingModel | AppState::ReceivingAnswer => false,
-                            _ => true,
-                        },
-
-                        connect_clicked[sender] => move |_| {
-                            sender.input(AppInputMsg::Submit);
-                        },
-                    }
-                }
+                // User Chat Input Fields
+                #[local_ref]
+                chat_input -> gtk::Box {},
             }
         }
     }
@@ -148,7 +117,7 @@ impl SimpleComponent for App {
 
         let messages = FactoryVecDeque::builder()
             .launch(factory_box.clone())
-            .forward(sender.input_sender(), |_| AppInputMsg::Submit);
+            .detach();
 
         let ollama =
             OllamaComponent::builder()
@@ -162,13 +131,21 @@ impl SimpleComponent for App {
                     OllamaOutputMsg::ChatAnswerEnd => AppInputMsg::AssistantAnswerEnd,
                 });
 
+        let chat_input = chat_input::ChatInputComponent::builder()
+            .launch(())
+            .forward(sender.input_sender(), |output| match output {
+                chat_input::OutputMsg::UserMessage(message) => AppInputMsg::Submit(message),
+            });
+
         let model = App {
             state: AppState::WaitingForUserInput,
             messages: messages,
-            user_input: gtk::EntryBuffer::default(),
+            chat_input: chat_input,
             model: None,
             ollama: ollama,
         };
+
+        let chat_input = model.chat_input.widget();
 
         // Insert the macro code generation here
         let widgets = view_output!();
@@ -200,29 +177,23 @@ impl SimpleComponent for App {
                 self.model = Some(model.clone());
                 self.state = AppState::WaitingForUserInput;
             }
-            AppInputMsg::Submit => {
-                let text = self.user_input.text();
-                if !text.is_empty() && self.model.is_some() {
-                    tracing::info!("Submitting user input {}", text.to_string());
-                    let message = Message {
-                        content: text.to_string(),
-                        role: Role::User,
-                    };
-                    let mut guard = self.messages.guard();
-                    guard.push_back(message.clone());
-                    // clearing the entry value clears the entry widget
-                    self.user_input.set_text("");
+            AppInputMsg::Submit(message) => {
+                let message = Message {
+                    content: message,
+                    role: Role::User,
+                };
+                let mut guard = self.messages.guard();
+                guard.push_back(message.clone());
 
-                    tracing::info!("Sending user input to assistant");
-                    self.ollama
-                        .sender()
-                        .send(OllamaInputMsg::Chat(
-                            self.model.clone().expect("Model to be set"),
-                            message.clone(),
-                        ))
-                        .expect("Message to be sent to Ollama Component");
-                    self.state = AppState::ReceivingAnswer;
-                }
+                tracing::info!("Sending user input to assistant");
+                self.ollama
+                    .sender()
+                    .send(OllamaInputMsg::Chat(
+                        self.model.clone().expect("Model to be set"),
+                        message.clone(),
+                    ))
+                    .expect("Message to be sent to Ollama Component");
+                self.state = AppState::ReceivingAnswer;
             }
             AppInputMsg::AssistantAnswerStart => {
                 tracing::info!("Starting to receive answer");
