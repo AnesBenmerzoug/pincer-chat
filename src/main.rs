@@ -57,6 +57,8 @@ impl SimpleComponent for App {
                 set_spacing: 5,
                 set_css_classes: &["main_container"],
 
+                
+                // Model Selection
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_margin_all: 5,
@@ -87,6 +89,7 @@ impl SimpleComponent for App {
                         },
                     },
                 },
+                // Messages
                 gtk::ScrolledWindow {
                     set_hscrollbar_policy: gtk::PolicyType::Never,
 
