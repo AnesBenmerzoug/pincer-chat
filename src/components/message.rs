@@ -46,10 +46,7 @@ impl FactoryComponent for MessageComponent {
                 set_buffer: Some(&self.buffer),
                 set_focusable: false,
                 set_editable: false,
-                set_justification: match self.role {
-                    Role::User => gtk::Justification::Right,
-                    _ => gtk::Justification::Left,
-                },
+                set_justification: gtk::Justification::Left,
                 set_wrap_mode: gtk::WrapMode::Word,
                 add_css_class: match self.role {
                     Role::System => "system_message",
