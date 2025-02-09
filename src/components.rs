@@ -1,3 +1,3 @@
 pub mod chat_input;
-pub mod message;
+pub mod message_bubble;
 pub mod ollama;
