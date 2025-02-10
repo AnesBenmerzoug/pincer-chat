@@ -17,7 +17,8 @@
     color: #FFFFFF;
 }
 
-.submit_button {
+.submit_button,
+.option_menu_button {
     background: #766AA6;
     color: #FFFFFF;
 }

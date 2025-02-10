@@ -5,7 +5,7 @@ use gtk::prelude::*;
 use relm4::prelude::*;
 use tracing;
 
-use crate::components::chat_input;
+use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
 };
@@ -21,7 +21,7 @@ struct App {
     model: Option<String>,
     // Components
     message_bubbles: Controller<MessageBubbleContainerComponent>,
-    chat_input: Controller<chat_input::ChatInputComponent>,
+    chat_input: Controller<ChatInputComponent>,
     ollama: Controller<OllamaComponent>,
 }
 
@@ -120,11 +120,12 @@ impl SimpleComponent for App {
                     OllamaOutputMsg::ChatAnswerEnd => AppInputMsg::AssistantAnswerEnd,
                 });
 
-        let chat_input = chat_input::ChatInputComponent::builder()
-            .launch(())
-            .forward(sender.input_sender(), |output| match output {
-                chat_input::OutputMsg::UserMessage(message) => AppInputMsg::Submit(message),
-            });
+        let chat_input =
+            ChatInputComponent::builder()
+                .launch(())
+                .forward(sender.input_sender(), |output| match output {
+                    ChatInputOutputMsg::UserMessage(message) => AppInputMsg::Submit(message),
+                });
 
         let model = App {
             state: AppState::WaitingForUserInput,
@@ -179,6 +180,11 @@ impl SimpleComponent for App {
                     .send(MessageBubbleContainerInputMsg::AddMessage(message.clone()))
                     .expect("Message to be sent to MessageBubble Container Component");
 
+                self.chat_input
+                    .sender()
+                    .send(ChatInputInputMsg::Disable)
+                    .expect("Message to be sent to Chat Input Component");
+
                 tracing::info!("Sending user input to assistant");
                 self.ollama
                     .sender()
@@ -187,6 +193,7 @@ impl SimpleComponent for App {
                         message,
                     ))
                     .expect("Message to be sent to Ollama Component");
+
                 self.state = AppState::ReceivingAnswer;
             }
             AppInputMsg::AssistantAnswerStart => {
@@ -209,6 +216,10 @@ impl SimpleComponent for App {
             }
             AppInputMsg::AssistantAnswerEnd => {
                 tracing::info!("Finished receiving answer");
+                self.chat_input
+                    .sender()
+                    .send(ChatInputInputMsg::Enable)
+                    .expect("Message to be sent to Chat Input Component");
                 self.state = AppState::WaitingForUserInput;
             }
         }

@@ -3,25 +3,35 @@ use relm4::prelude::*;
 
 #[derive(Debug)]
 pub struct ChatInputComponent {
-    pub user_input: gtk::EntryBuffer,
+    user_input: gtk::EntryBuffer,
 }
 
 #[derive(Debug)]
-pub enum InputMsg {
-    Ready,
-    Submit,
+pub enum ChatInputInputMsg {
+    Enable,
+    Disable,
 }
 
 #[derive(Debug)]
-pub enum OutputMsg {
+pub enum ChatInputOutputMsg {
     UserMessage(String),
+}
+
+impl ChatInputComponent {
+    fn disable(&self, root: &<Self as Component>::Root) {
+        root.set_sensitive(false);
+    }
+
+    fn enable(&self, root: &<Self as Component>::Root) {
+        root.set_sensitive(true);
+    }
 }
 
 #[relm4::component(pub)]
 impl Component for ChatInputComponent {
     type Init = ();
-    type Input = InputMsg;
-    type Output = OutputMsg;
+    type Input = ChatInputInputMsg;
+    type Output = ChatInputOutputMsg;
     type CommandOutput = ();
 
     view! {
@@ -32,6 +42,7 @@ impl Component for ChatInputComponent {
             set_halign: gtk::Align::Fill,
             set_valign: gtk::Align::End,
 
+            #[name = "text_input"]
             gtk::Entry {
                 set_buffer: &model.user_input,
                 set_tooltip_text: Some("Send a message"),
@@ -40,30 +51,26 @@ impl Component for ChatInputComponent {
                 set_hexpand: true,
                 set_halign: gtk::Align::Fill,
 
-                connect_activate => InputMsg::Submit,
+                connect_activate => ChatInputInputMsg::Disable,
             },
+
+            #[name = "submit_button"]
             gtk::Button {
                 set_label: "Send",
                 set_vexpand: true,
                 set_css_classes: &["submit_button"],
+                set_sensitive: true,
 
-                connect_clicked => InputMsg::Submit,
+                connect_clicked => ChatInputInputMsg::Disable,
             },
-            /*
+
             gtk::MenuButton {
                 set_vexpand: true,
                 set_halign: gtk::Align::Start,
                 set_direction: gtk::ArrowType::Up,
-
-                #[watch]
-                set_can_target: model.enabled,
-
-                #[wrap(Some)]
-                set_popover = &gtk::PopoverMenu::from_model(Some(&main_menu)) {
-                    add_child: (&popover_child, "my_widget"),
-                }
+                set_icon_name: "preferences-system-symbolic",
+                set_css_classes: &["option_menu_button"],
             }
-            */
         }
     }
 
@@ -83,38 +90,22 @@ impl Component for ChatInputComponent {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
-            InputMsg::Ready => {
-                let _ = Self::enable(root);
+            ChatInputInputMsg::Enable => {
+                self.enable(root);
             }
-            InputMsg::Submit => {
+            ChatInputInputMsg::Disable => {
                 let text = self.user_input.text();
                 if !text.is_empty() {
                     tracing::info!("Submitting user input {}", text.to_string());
                     sender
-                        .output(OutputMsg::UserMessage(text.to_string()))
+                        .output(ChatInputOutputMsg::UserMessage(text.to_string()))
                         .expect("Sending componet message should work");
                     tracing::info!("Clearing user input field");
                     self.user_input.set_text("");
                     tracing::info!("Disabling user input temporarily");
-                    let _ = Self::disable(root);
+                    self.disable(root);
                 };
             }
         }
-    }
-}
-
-impl ChatInputComponent {
-    #[must_use]
-    fn disable(root: &<Self as Component>::Root) {
-        root.set_can_focus(false);
-        root.set_can_target(false);
-        root.set_child_visible(false);
-    }
-
-    #[must_use]
-    fn enable(root: &<Self as Component>::Root) {
-        root.set_can_focus(true);
-        root.set_can_target(true);
-        root.set_child_visible(true);
     }
 }
