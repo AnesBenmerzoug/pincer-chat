@@ -1,15 +1,22 @@
 use gtk::prelude::*;
 use relm4::prelude::*;
 
+use crate::components::assistant_options_dialog::AssistantOptionsDialog;
+
+use super::assistant_options_dialog::AssistantOptionsDialogInputMsg;
+
 #[derive(Debug)]
 pub struct ChatInputComponent {
     user_input: gtk::EntryBuffer,
+    options_dialog: Controller<AssistantOptionsDialog>,
 }
 
 #[derive(Debug)]
 pub enum ChatInputInputMsg {
     Enable,
     Disable,
+    Submit,
+    ShowOptionsDialog,
 }
 
 #[derive(Debug)]
@@ -35,7 +42,8 @@ impl Component for ChatInputComponent {
     type CommandOutput = ();
 
     view! {
-        gtk::Box {
+        #[root]
+        chat_input_container = gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_margin_all: 5,
             set_spacing: 5,
@@ -51,7 +59,7 @@ impl Component for ChatInputComponent {
                 set_hexpand: true,
                 set_halign: gtk::Align::Fill,
 
-                connect_activate => ChatInputInputMsg::Disable,
+                connect_activate => ChatInputInputMsg::Submit,
             },
 
             #[name = "submit_button"]
@@ -64,14 +72,16 @@ impl Component for ChatInputComponent {
                 connect_clicked => ChatInputInputMsg::Disable,
             },
 
-            gtk::MenuButton {
+            #[name = "option_menu_button"]
+            gtk::Button {
+                set_icon_name: "open-menu-symbolic",
                 set_vexpand: true,
-                set_halign: gtk::Align::Start,
-                set_direction: gtk::ArrowType::Up,
                 set_icon_name: "preferences-system-symbolic",
                 set_css_classes: &["option_menu_button"],
+                set_sensitive: true,
+                connect_clicked => ChatInputInputMsg::ShowOptionsDialog,
             }
-        }
+        },
     }
 
     fn init(
@@ -79,8 +89,14 @@ impl Component for ChatInputComponent {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let options_dialog = AssistantOptionsDialog::builder()
+            .transient_for(&root)
+            .launch(())
+            .detach();
+
         let model = ChatInputComponent {
             user_input: gtk::EntryBuffer::default(),
+            options_dialog,
         };
 
         let widgets = view_output!();
@@ -94,6 +110,9 @@ impl Component for ChatInputComponent {
                 self.enable(root);
             }
             ChatInputInputMsg::Disable => {
+                self.disable(root);
+            }
+            ChatInputInputMsg::Submit => {
                 let text = self.user_input.text();
                 if !text.is_empty() {
                     tracing::info!("Submitting user input {}", text.to_string());
@@ -105,6 +124,11 @@ impl Component for ChatInputComponent {
                     tracing::info!("Disabling user input temporarily");
                     self.disable(root);
                 };
+            }
+            ChatInputInputMsg::ShowOptionsDialog => {
+                self.options_dialog
+                    .sender()
+                    .emit(AssistantOptionsDialogInputMsg::Show);
             }
         }
     }
