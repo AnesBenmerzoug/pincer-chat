@@ -7,6 +7,7 @@ use super::assistant_options_dialog::AssistantOptionsDialogInputMsg;
 
 #[derive(Debug)]
 pub struct ChatInputComponent {
+    enabled: bool,
     user_input: gtk::EntryBuffer,
     options_dialog: Controller<AssistantOptionsDialog>,
 }
@@ -25,12 +26,12 @@ pub enum ChatInputOutputMsg {
 }
 
 impl ChatInputComponent {
-    fn disable(&self, root: &<Self as Component>::Root) {
-        root.set_sensitive(false);
+    fn disable(&mut self) {
+        self.enabled = false;
     }
 
-    fn enable(&self, root: &<Self as Component>::Root) {
-        root.set_sensitive(true);
+    fn enable(&mut self) {
+        self.enabled = true;
     }
 }
 
@@ -47,12 +48,16 @@ impl Component for ChatInputComponent {
             set_orientation: gtk::Orientation::Horizontal,
             set_margin_all: 5,
             set_spacing: 5,
+            #[watch]
+            set_sensitive: model.enabled,
 
             #[name = "text_input"]
             gtk::Entry {
                 set_buffer: &model.user_input,
-                set_tooltip_text: Some("Send a message"),
-                set_placeholder_text: Some("Send a message"),
+                #[watch]
+                set_tooltip_text: Some("Write a message"),
+                #[watch]
+                set_placeholder_text: if model.enabled == true { Some("Write a message") } else { Some("Loading ...") },
                 set_hexpand: true,
                 set_halign: gtk::Align::Fill,
 
@@ -90,6 +95,7 @@ impl Component for ChatInputComponent {
             .detach();
 
         let model = ChatInputComponent {
+            enabled: true,
             user_input: gtk::EntryBuffer::default(),
             options_dialog,
         };
@@ -102,10 +108,10 @@ impl Component for ChatInputComponent {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
             ChatInputInputMsg::Enable => {
-                self.enable(root);
+                self.enable();
             }
             ChatInputInputMsg::Disable => {
-                self.disable(root);
+                self.disable();
             }
             ChatInputInputMsg::Submit => {
                 let text = self.user_input.text();
@@ -117,7 +123,7 @@ impl Component for ChatInputComponent {
                     tracing::info!("Clearing user input field");
                     self.user_input.set_text("");
                     tracing::info!("Disabling user input temporarily");
-                    self.disable(root);
+                    self.disable();
                 };
             }
             ChatInputInputMsg::ShowOptionsDialog => {
