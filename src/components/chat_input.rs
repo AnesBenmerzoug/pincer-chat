@@ -21,7 +21,7 @@ pub enum ChatInputInputMsg {
 
 #[derive(Debug)]
 pub enum ChatInputOutputMsg {
-    UserMessage(String),
+    SubmitUserInput(String),
 }
 
 impl ChatInputComponent {
@@ -47,15 +47,12 @@ impl Component for ChatInputComponent {
             set_orientation: gtk::Orientation::Horizontal,
             set_margin_all: 5,
             set_spacing: 5,
-            set_halign: gtk::Align::Fill,
-            set_valign: gtk::Align::End,
 
             #[name = "text_input"]
             gtk::Entry {
                 set_buffer: &model.user_input,
                 set_tooltip_text: Some("Send a message"),
                 set_placeholder_text: Some("Send a message"),
-                set_vexpand: true,
                 set_hexpand: true,
                 set_halign: gtk::Align::Fill,
 
@@ -65,7 +62,6 @@ impl Component for ChatInputComponent {
             #[name = "submit_button"]
             gtk::Button {
                 set_label: "Send",
-                set_vexpand: true,
                 set_css_classes: &["submit_button"],
                 set_sensitive: true,
 
@@ -75,7 +71,6 @@ impl Component for ChatInputComponent {
             #[name = "option_menu_button"]
             gtk::Button {
                 set_icon_name: "open-menu-symbolic",
-                set_vexpand: true,
                 set_icon_name: "preferences-system-symbolic",
                 set_css_classes: &["option_menu_button"],
                 set_sensitive: true,
@@ -117,7 +112,7 @@ impl Component for ChatInputComponent {
                 if !text.is_empty() {
                     tracing::info!("Submitting user input {}", text.to_string());
                     sender
-                        .output(ChatInputOutputMsg::UserMessage(text.to_string()))
+                        .output(ChatInputOutputMsg::SubmitUserInput(text.to_string()))
                         .expect("Sending componet message should work");
                     tracing::info!("Clearing user input field");
                     self.user_input.set_text("");

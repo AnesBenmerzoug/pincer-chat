@@ -15,7 +15,7 @@ pub struct OllamaComponent {
 
 #[derive(Debug)]
 pub enum OllamaInputMsg {
-    Pull(String),
+    PullModelStart(String),
     Chat(String, Message),
 }
 
@@ -24,12 +24,12 @@ pub enum OllamaCmdMsg {
     ChatAnswerStart,
     ChatAnswerChunk(Message),
     ChatAnswerEnd,
-    PulledModel(String),
+    PullModelEnd(String),
 }
 
 #[derive(Debug)]
 pub enum OllamaOutputMsg {
-    PulledModel(String),
+    PullModelEnd(String),
     ChatAnswerStart,
     ChatAnswerChunk(Message),
     ChatAnswerEnd,
@@ -66,7 +66,7 @@ impl Component for OllamaComponent {
                     |out: relm4::Sender<OllamaCmdMsg>, shutdown: relm4::ShutdownReceiver| {
                         shutdown
                             .register(async move {
-                                out.send(OllamaCmdMsg::ChatAnswerStart).expect("Message to be sent in channel");
+                                out.emit(OllamaCmdMsg::ChatAnswerStart);
                                 let mut response_stream =
                                     match chat(model, messages)
                                         .await {
@@ -74,10 +74,10 @@ impl Component for OllamaComponent {
                                             Err(e) => {
                                                 tracing::error!("Failed generating answer {}", e);
 
-                                                out.send(OllamaCmdMsg::ChatAnswerChunk(Message {
+                                                out.emit(OllamaCmdMsg::ChatAnswerChunk(Message {
                                                     content: "I am sorry. I am having issues generating an answer".to_string(),
                                                     role: Role::Assistant,
-                                                })).expect("Message to be sent in channel");
+                                                }));
                                                 return;
                                             },
                                         };
@@ -89,7 +89,7 @@ impl Component for OllamaComponent {
                                                 if chat_response.done != true {
                                                     let answer_delta = &*chat_response.message.content;
                                                     tracing::info!("Received answer delta {}", answer_delta);
-                                                    out.send(OllamaCmdMsg::ChatAnswerChunk(chat_response.message)).expect("Message to be sent in channel");
+                                                    out.emit(OllamaCmdMsg::ChatAnswerChunk(chat_response.message));
                                                 }
                                             }
                                             Err(e) => {
@@ -103,7 +103,7 @@ impl Component for OllamaComponent {
                                         },
                                     };
                                 };
-                                out.send(OllamaCmdMsg::ChatAnswerEnd).expect("Message to be sent in channel");
+                                out.emit(OllamaCmdMsg::ChatAnswerEnd);
                             })
                             // Perform task until a shutdown interrupts it
                             .drop_on_shutdown()
@@ -112,7 +112,7 @@ impl Component for OllamaComponent {
                     },
                 )
             }
-            OllamaInputMsg::Pull(model) => {
+            OllamaInputMsg::PullModelStart(model) => {
                 tracing::info!("pulling model: {}", model);
 
                 sender.command(
@@ -140,7 +140,7 @@ impl Component for OllamaComponent {
                                         None => break,
                                     };
                                 }
-                                out.send(OllamaCmdMsg::PulledModel(model)).unwrap();
+                                out.emit(OllamaCmdMsg::PullModelEnd(model));
                             })
                             // Perform task until a shutdown interrupts it
                             .drop_on_shutdown()
@@ -160,10 +160,10 @@ impl Component for OllamaComponent {
     ) {
         tracing::debug!("Ollama component update_");
         match message {
-            OllamaCmdMsg::PulledModel(model) => {
+            OllamaCmdMsg::PullModelEnd(model) => {
                 sender
-                    .output(OllamaOutputMsg::PulledModel(model))
-                    .expect("Message to be sent to App");
+                    .output_sender()
+                    .emit(OllamaOutputMsg::PullModelEnd(model));
             }
             OllamaCmdMsg::ChatAnswerStart => {
                 self.messages.push(Message {
@@ -171,22 +171,17 @@ impl Component for OllamaComponent {
                     role: Role::Assistant,
                 });
                 sender
-                    .output(OllamaOutputMsg::ChatAnswerStart)
-                    .expect("Message to be sent to App");
+                    .output_sender()
+                    .emit(OllamaOutputMsg::ChatAnswerStart);
             }
-            OllamaCmdMsg::ChatAnswerChunk(message) => {
+            OllamaCmdMsg::ChatAnswerChunk(message_chunk) => {
                 self.messages
                     .last_mut()
                     .expect("There should be a last element")
-                    .update(&message)
+                    .update(&message_chunk)
                     .expect("The two messages must have the same role");
-                let updated_message = self
-                    .messages
-                    .last()
-                    .expect("There should be a last element")
-                    .clone();
                 sender
-                    .output(OllamaOutputMsg::ChatAnswerChunk(updated_message))
+                    .output(OllamaOutputMsg::ChatAnswerChunk(message_chunk))
                     .expect("Message to be sent to App");
             }
             OllamaCmdMsg::ChatAnswerEnd => {

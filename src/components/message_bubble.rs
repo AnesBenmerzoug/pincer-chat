@@ -13,7 +13,7 @@ pub struct MessageBubbleContainerComponent {
 #[derive(Debug)]
 pub enum MessageBubbleContainerInputMsg {
     AddMessage(Message),
-    ReplaceLastMessage(Message),
+    AppendToLastMessage(Message),
 }
 
 #[relm4::component(pub)]
@@ -24,18 +24,21 @@ impl Component for MessageBubbleContainerComponent {
     type CommandOutput = ();
 
     view! {
-        gtk::ScrolledWindow {
-            set_hscrollbar_policy: gtk::PolicyType::Never,
+        gtk::Box{
+            set_vexpand: true,
+            set_valign: gtk::Align::Fill,
 
-            #[local]
-            factory_box -> gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_margin_all: 10,
-                set_spacing: 10,
-                set_hexpand: false,
+            gtk::ScrolledWindow {
+                set_hscrollbar_policy: gtk::PolicyType::Never,
                 set_vexpand: true,
-                // set_halign: gtk::Align::Fill,
                 set_valign: gtk::Align::Fill,
+
+                #[local]
+                factory_box -> gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_margin_all: 10,
+                    set_spacing: 10,
+                },
             },
         },
     }
@@ -64,12 +67,12 @@ impl Component for MessageBubbleContainerComponent {
                 let mut guard = self.message_bubbles.guard();
                 guard.push_back(message);
             }
-            MessageBubbleContainerInputMsg::ReplaceLastMessage(message) => {
+            MessageBubbleContainerInputMsg::AppendToLastMessage(message) => {
                 let mut guard = self.message_bubbles.guard();
                 guard
                     .back_mut()
                     .expect("There should be at least one previous message")
-                    .replace_message(message)
+                    .append_to_message(message)
                     .expect("Replacing message should work");
             }
         }
@@ -84,11 +87,11 @@ pub struct MessageBubbleComponent {
 }
 
 impl MessageBubbleComponent {
-    pub fn replace_message(&mut self, other: Message) -> Result<()> {
+    pub fn append_to_message(&mut self, other: Message) -> Result<()> {
         if self.role != other.role {
             return Err(anyhow!("the two message roles should be the same"));
         }
-        self.buffer.set_text(&*other.content);
+        self.buffer.insert_at_cursor(&*other.content);
         Ok(())
     }
 }

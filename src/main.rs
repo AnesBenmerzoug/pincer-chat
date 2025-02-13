@@ -1,17 +1,15 @@
 mod components;
 mod ollama;
+mod pages;
 
 use gtk::prelude::*;
 use relm4::prelude::*;
 use tracing;
 
-use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
-use crate::components::message_bubble::{
-    MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
-};
 use crate::components::ollama::OllamaComponent;
 use crate::components::ollama::{OllamaInputMsg, OllamaOutputMsg};
-use crate::ollama::types::{Message, Role};
+use crate::ollama::types::Message;
+use crate::pages::chat::{ChatPage, ChatPageInputMsg, ChatPageOutputMsg};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 
@@ -20,8 +18,7 @@ struct App {
     state: AppState,
     model: Option<String>,
     // Components
-    message_bubbles: Controller<MessageBubbleContainerComponent>,
-    chat_input: Controller<ChatInputComponent>,
+    chat_page: Controller<ChatPage>,
     ollama: Controller<OllamaComponent>,
 }
 
@@ -34,12 +31,12 @@ enum AppState {
 
 #[derive(Debug)]
 enum AppInputMsg {
-    SelectModel(String),
-    PulledModel(String),
+    PullModelStart(String),
+    PullModelEnd(String),
     AssistantAnswerStart,
     AssistantAnswerChunk(Message),
     AssistantAnswerEnd,
-    Submit(String),
+    SendInputToAssistant(Message),
 }
 
 #[relm4::component]
@@ -52,67 +49,28 @@ impl SimpleComponent for App {
         gtk::ApplicationWindow {
             set_title: Some("Chat"),
             set_default_size: (800, 600),
-            set_hexpand: true,
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_margin_all: 5,
-                set_spacing: 5,
-                set_css_classes: &["main_container"],
-
-                // Model Selection
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_margin_all: 5,
-                    set_spacing: 5,
-                    set_halign: gtk::Align::Fill,
-                    set_valign: gtk::Align::Start,
-
-                    gtk::Label {
-                        set_label: "Model",
-                    },
-                    #[name = "model_selection_drop_down"]
-                    gtk::DropDown::from_strings(&["deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
-                        set_hexpand: true,
-                        set_halign: gtk::Align::Fill,
-                        #[watch]
-                        set_can_target: match model.state {
-                            AppState::PullingModel | AppState::ReceivingAnswer => false,
-                            _ => true,
-                        },
-                        connect_selected_notify[sender] => move |model_drop_down| {
-                            sender.input(AppInputMsg::SelectModel(
-                                model_drop_down
-                                .selected_item()
-                                .expect("Getting selected item from dropdown should work")
-                                .downcast::<gtk::StringObject>()
-                                .expect("Conversion of gtk StringObject to String should work")
-                                .into()))
-                        },
-                    },
-                },
-
-                // Message bubbles
-                #[local_ref]
-                message_bubbles -> gtk::ScrolledWindow {},
-
-                // User Chat Input Fields
-                #[local_ref]
-                chat_input -> gtk::Box {},
-            }
+            // Chat Page
+            #[local_ref]
+            chat_page -> gtk::Box{},
         }
     }
 
     fn init(_: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
-        let message_bubbles = MessageBubbleContainerComponent::builder()
+        let chat_page = ChatPage::builder()
             .launch(())
-            .detach();
+            .forward(sender.input_sender(), |output| match output {
+                ChatPageOutputMsg::TriggerModelPull(model) => AppInputMsg::PullModelStart(model),
+                ChatPageOutputMsg::GetAssistantAnswer(message) => {
+                    AppInputMsg::SendInputToAssistant(message)
+                }
+            });
 
         let ollama =
             OllamaComponent::builder()
                 .launch(())
                 .forward(sender.input_sender(), |output| match output {
-                    OllamaOutputMsg::PulledModel(model) => AppInputMsg::PulledModel(model),
+                    OllamaOutputMsg::PullModelEnd(model) => AppInputMsg::PullModelEnd(model),
                     OllamaOutputMsg::ChatAnswerStart => AppInputMsg::AssistantAnswerStart,
                     OllamaOutputMsg::ChatAnswerChunk(answer) => {
                         AppInputMsg::AssistantAnswerChunk(answer)
@@ -120,106 +78,62 @@ impl SimpleComponent for App {
                     OllamaOutputMsg::ChatAnswerEnd => AppInputMsg::AssistantAnswerEnd,
                 });
 
-        let chat_input =
-            ChatInputComponent::builder()
-                .launch(())
-                .forward(sender.input_sender(), |output| match output {
-                    ChatInputOutputMsg::UserMessage(message) => AppInputMsg::Submit(message),
-                });
-
         let model = App {
             state: AppState::WaitingForUserInput,
-            message_bubbles,
-            chat_input: chat_input,
             model: None,
+            chat_page,
             ollama: ollama,
         };
 
         // References used in the view macro
-        let message_bubbles = model.message_bubbles.widget();
-        let chat_input = model.chat_input.widget();
+        let chat_page = model.chat_page.widget();
 
         // Insert the macro code generation here
         let widgets = view_output!();
-
-        let default_model = widgets
-            .model_selection_drop_down
-            .selected_item()
-            .unwrap()
-            .downcast::<gtk::StringObject>()
-            .unwrap()
-            .into();
-        sender.input(AppInputMsg::SelectModel(default_model));
 
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, _: ComponentSender<Self>) {
         match msg {
-            AppInputMsg::SelectModel(model) => {
-                tracing::info!("selected model {}", model);
+            AppInputMsg::PullModelStart(model) => {
+                tracing::info!("Pulling model {}", model);
                 self.ollama
                     .sender()
-                    .send(OllamaInputMsg::Pull(model))
-                    .expect("Message to be sent to Ollama Component");
+                    .emit(OllamaInputMsg::PullModelStart(model));
                 self.state = AppState::PullingModel;
             }
-            AppInputMsg::PulledModel(model) => {
-                tracing::info!("pulled model {}", model);
+            AppInputMsg::PullModelEnd(model) => {
+                tracing::info!("successfully pulled model");
                 self.model = Some(model.clone());
                 self.state = AppState::WaitingForUserInput;
+                self.chat_page.sender().emit(ChatPageInputMsg::ModelReady);
             }
-            AppInputMsg::Submit(message) => {
-                let message = Message {
-                    content: message,
-                    role: Role::User,
-                };
-
-                self.message_bubbles
-                    .sender()
-                    .send(MessageBubbleContainerInputMsg::AddMessage(message.clone()))
-                    .expect("Message to be sent to MessageBubble Container Component");
-
-                self.chat_input
-                    .sender()
-                    .send(ChatInputInputMsg::Disable)
-                    .expect("Message to be sent to Chat Input Component");
-
+            AppInputMsg::SendInputToAssistant(message) => {
                 tracing::info!("Sending user input to assistant");
-                self.ollama
-                    .sender()
-                    .send(OllamaInputMsg::Chat(
-                        self.model.clone().expect("Model to be set"),
-                        message,
-                    ))
-                    .expect("Message to be sent to Ollama Component");
-
+                self.ollama.sender().emit(OllamaInputMsg::Chat(
+                    self.model.clone().expect("Model to be set"),
+                    message,
+                ));
                 self.state = AppState::ReceivingAnswer;
             }
             AppInputMsg::AssistantAnswerStart => {
                 tracing::info!("Starting to receive answer");
-                let message = Message {
-                    content: String::new(),
-                    role: Role::Assistant,
-                };
-                self.message_bubbles
+                self.chat_page
                     .sender()
-                    .send(MessageBubbleContainerInputMsg::AddMessage(message))
-                    .expect("Message to be sent to MessageBubble Container Component");
+                    .emit(ChatPageInputMsg::AssistantAnswerStart);
             }
             AppInputMsg::AssistantAnswerChunk(answer) => {
                 tracing::info!("Receiving answer");
-                self.message_bubbles
+                self.chat_page
                     .sender()
-                    .send(MessageBubbleContainerInputMsg::ReplaceLastMessage(answer))
-                    .expect("Message to be sent to MessageBubble Container Component");
+                    .emit(ChatPageInputMsg::AssistantAnswerProgress(answer));
             }
             AppInputMsg::AssistantAnswerEnd => {
                 tracing::info!("Finished receiving answer");
-                self.chat_input
+                self.chat_page
                     .sender()
-                    .send(ChatInputInputMsg::Enable)
-                    .expect("Message to be sent to Chat Input Component");
+                    .emit(ChatPageInputMsg::AssistantAnswerEnd);
                 self.state = AppState::WaitingForUserInput;
             }
         }
