@@ -30,8 +30,7 @@ impl Component for MessageBubbleContainerComponent {
 
             gtk::ScrolledWindow {
                 set_hscrollbar_policy: gtk::PolicyType::Never,
-                set_vexpand: true,
-                set_valign: gtk::Align::Fill,
+                set_hexpand: true,
 
                 #[local]
                 factory_box -> gtk::Box {
