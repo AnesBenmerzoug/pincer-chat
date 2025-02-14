@@ -32,11 +32,10 @@ pub enum ChatPageOutputMsg {
 }
 
 #[relm4::component(pub)]
-impl Component for ChatPage {
+impl SimpleComponent for ChatPage {
     type Init = ();
     type Input = ChatPageInputMsg;
     type Output = ChatPageOutputMsg;
-    type CommandOutput = ();
 
     view! {
         gtk::Box {
@@ -119,7 +118,7 @@ impl Component for ChatPage {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             ChatPageInputMsg::SelectModel(model) => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Disable);

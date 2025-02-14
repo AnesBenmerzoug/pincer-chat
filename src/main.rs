@@ -4,12 +4,14 @@ mod pages;
 
 use gtk::prelude::*;
 use relm4::prelude::*;
+use relm4::{RelmContainerExt, RelmRemoveExt};
 use tracing;
 
 use crate::components::ollama::OllamaComponent;
 use crate::components::ollama::{OllamaInputMsg, OllamaOutputMsg};
 use crate::ollama::types::Message;
 use crate::pages::chat::{ChatPage, ChatPageInputMsg, ChatPageOutputMsg};
+use crate::pages::startup::{StartUpPage, StartUpPageOutputMsg};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 
@@ -18,12 +20,15 @@ struct App {
     state: AppState,
     model: Option<String>,
     // Components
+    startup_page: Controller<StartUpPage>,
     chat_page: Controller<ChatPage>,
     ollama: Controller<OllamaComponent>,
 }
 
 #[derive(Debug, Clone)]
 enum AppState {
+    StartupPage,
+    ChatPage,
     PullingModel,
     WaitingForUserInput,
     ReceivingAnswer,
@@ -31,6 +36,7 @@ enum AppState {
 
 #[derive(Debug)]
 enum AppInputMsg {
+    ShowChatPage,
     PullModelStart(String),
     PullModelEnd(String),
     AssistantAnswerStart,
@@ -50,13 +56,34 @@ impl SimpleComponent for App {
             set_title: Some("Chat"),
             set_default_size: (800, 600),
 
-            // Chat Page
-            #[local_ref]
-            chat_page -> gtk::Box{},
+            #[name = "page_container"]
+            gtk::Box {
+                set_hexpand: true,
+                set_vexpand: true,
+                set_halign: gtk::Align::Fill,
+                set_valign: gtk::Align::Fill,
+
+                // You can also use returned widgets
+                #[name = "page_stack"]
+                gtk::Stack {},
+            },
+        }
+    }
+
+    fn pre_view() {
+        if let AppState::ChatPage = self.state {
+            widgets.page_stack.set_visible_child_name("chat");
         }
     }
 
     fn init(_: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
+        let startup_page = StartUpPage::builder().launch(()).forward(
+            sender.input_sender(),
+            |output| match output {
+                StartUpPageOutputMsg::Ready => AppInputMsg::ShowChatPage,
+            },
+        );
+
         let chat_page = ChatPage::builder()
             .launch(())
             .forward(sender.input_sender(), |output| match output {
@@ -79,23 +106,31 @@ impl SimpleComponent for App {
                 });
 
         let model = App {
-            state: AppState::WaitingForUserInput,
+            state: AppState::StartupPage,
             model: None,
+            startup_page,
             chat_page,
             ollama: ollama,
         };
 
-        // References used in the view macro
-        let chat_page = model.chat_page.widget();
-
         // Insert the macro code generation here
-        let widgets = view_output!();
+        let widgets = view_output! {};
+
+        let startup_page = model.startup_page.widget();
+        let chat_page = model.chat_page.widget();
+        widgets.page_stack.add_named(startup_page, Some("startup"));
+        widgets.page_stack.add_named(chat_page, Some("chat"));
+        widgets.page_stack.set_visible_child_name("startup");
 
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, _: ComponentSender<Self>) {
         match msg {
+            AppInputMsg::ShowChatPage => {
+                tracing::info!("Switching to Chat Page");
+                self.state = AppState::ChatPage;
+            }
             AppInputMsg::PullModelStart(model) => {
                 tracing::info!("Pulling model {}", model);
                 self.ollama
