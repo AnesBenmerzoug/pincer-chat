@@ -66,3 +66,8 @@ pub struct ChatResponse {
     pub eval_count: Option<u64>,
     pub eval_duration: Option<u64>,
 }
+
+#[derive(Debug, Deserialize, Default)]
+pub struct VersionResponse {
+    pub version: String,
+}
