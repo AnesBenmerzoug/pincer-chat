@@ -1,11 +1,11 @@
-use futures::{FutureExt, StreamExt, TryStreamExt};
+use futures::{FutureExt, StreamExt};
 
 use relm4::{Component, ComponentParts, ComponentSender};
 use tracing;
 
 use crate::ollama::{
     client::{chat, pull_model},
-    types::{ChatResponse, Message, PullModelResponse, Role},
+    types::{Message, Role},
 };
 
 #[derive(Debug)]

@@ -48,7 +48,7 @@ pub async fn chat(
 ) -> Result<impl Stream<Item = Result<ChatResponse>>> {
     let body = ChatRequest {
         model: model.clone(),
-        messages: messages,
+        messages,
         stream: true,
     };
     let serialized_body = serde_json::to_string(&body)?;

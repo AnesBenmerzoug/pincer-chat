@@ -1,6 +1,5 @@
 use gtk::glib;
 use gtk::prelude::*;
-use relm4::gtk::SpinButton;
 use relm4::prelude::*;
 
 #[derive(Debug)]

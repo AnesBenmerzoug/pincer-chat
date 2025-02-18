@@ -2,16 +2,23 @@ mod components;
 mod ollama;
 mod pages;
 
+use std::time::Duration;
+
 use gtk::prelude::*;
 use relm4::prelude::*;
-use relm4::{RelmContainerExt, RelmRemoveExt};
+use relm4::{
+    component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender},
+    gtk,
+    loading_widgets::LoadingWidgets,
+    view, RelmApp,
+};
+use tokio;
 use tracing;
 
 use crate::components::ollama::OllamaComponent;
 use crate::components::ollama::{OllamaInputMsg, OllamaOutputMsg};
 use crate::ollama::types::Message;
 use crate::pages::chat::{ChatPage, ChatPageInputMsg, ChatPageOutputMsg};
-use crate::pages::startup::{StartUpPage, StartUpPageOutputMsg};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 
@@ -20,7 +27,6 @@ struct App {
     state: AppState,
     model: Option<String>,
     // Components
-    startup_page: Controller<StartUpPage>,
     chat_page: Controller<ChatPage>,
     ollama: Controller<OllamaComponent>,
 }
@@ -35,7 +41,7 @@ enum AppState {
 }
 
 #[derive(Debug)]
-enum AppInputMsg {
+enum AppMsg {
     ShowChatPage,
     PullModelStart(String),
     PullModelEnd(String),
@@ -45,51 +51,71 @@ enum AppInputMsg {
     SendInputToAssistant(Message),
 }
 
-#[relm4::component]
-impl SimpleComponent for App {
+#[relm4::component(async)]
+impl AsyncComponent for App {
     type Init = ();
-    type Input = AppInputMsg;
+    type Input = AppMsg;
     type Output = ();
+    type CommandOutput = ();
 
     view! {
         gtk::ApplicationWindow {
             set_title: Some("Chat"),
             set_default_size: (800, 600),
+            set_hexpand: true,
+            set_vexpand: true,
+            set_halign: gtk::Align::Fill,
+            set_valign: gtk::Align::Fill,
 
-            #[name = "page_container"]
-            gtk::Box {
+            #[local_ref]
+            chat_page -> gtk::Box {},
+        }
+    }
+
+    fn init_loading_widgets(root: Self::Root) -> Option<LoadingWidgets> {
+        view! {
+            #[local]
+            root {
+                set_title: Some("Chat"),
+                set_default_size: (800, 600),
                 set_hexpand: true,
                 set_vexpand: true,
                 set_halign: gtk::Align::Fill,
                 set_valign: gtk::Align::Fill,
 
-                // You can also use returned widgets
-                #[name = "page_stack"]
-                gtk::Stack {},
-            },
+                #[name = "widget"]
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_hexpand: true,
+                    set_vexpand: true,
+                    set_halign: gtk::Align::Center,
+                    set_valign: gtk::Align::Center,
+
+                    gtk::Spinner {
+                        set_spinning: true,
+                    },
+                    gtk::Label {
+                        set_label: "Starting up application...",
+                    },
+                },
+            }
         }
+        Some(LoadingWidgets::new(root, widget))
     }
 
-    fn pre_view() {
-        if let AppState::ChatPage = self.state {
-            widgets.page_stack.set_visible_child_name("chat");
-        }
-    }
-
-    fn init(_: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
-        let startup_page = StartUpPage::builder().launch(()).forward(
-            sender.input_sender(),
-            |output| match output {
-                StartUpPageOutputMsg::Ready => AppInputMsg::ShowChatPage,
-            },
-        );
+    async fn init(
+        _: (),
+        root: Self::Root,
+        sender: AsyncComponentSender<Self>,
+    ) -> AsyncComponentParts<Self> {
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
         let chat_page = ChatPage::builder()
             .launch(())
             .forward(sender.input_sender(), |output| match output {
-                ChatPageOutputMsg::TriggerModelPull(model) => AppInputMsg::PullModelStart(model),
+                ChatPageOutputMsg::TriggerModelPull(model) => AppMsg::PullModelStart(model),
                 ChatPageOutputMsg::GetAssistantAnswer(message) => {
-                    AppInputMsg::SendInputToAssistant(message)
+                    AppMsg::SendInputToAssistant(message)
                 }
             });
 
@@ -97,54 +123,54 @@ impl SimpleComponent for App {
             OllamaComponent::builder()
                 .launch(())
                 .forward(sender.input_sender(), |output| match output {
-                    OllamaOutputMsg::PullModelEnd(model) => AppInputMsg::PullModelEnd(model),
-                    OllamaOutputMsg::ChatAnswerStart => AppInputMsg::AssistantAnswerStart,
+                    OllamaOutputMsg::PullModelEnd(model) => AppMsg::PullModelEnd(model),
+                    OllamaOutputMsg::ChatAnswerStart => AppMsg::AssistantAnswerStart,
                     OllamaOutputMsg::ChatAnswerChunk(answer) => {
-                        AppInputMsg::AssistantAnswerChunk(answer)
+                        AppMsg::AssistantAnswerChunk(answer)
                     }
-                    OllamaOutputMsg::ChatAnswerEnd => AppInputMsg::AssistantAnswerEnd,
+                    OllamaOutputMsg::ChatAnswerEnd => AppMsg::AssistantAnswerEnd,
                 });
 
         let model = App {
             state: AppState::StartupPage,
             model: None,
-            startup_page,
             chat_page,
             ollama: ollama,
         };
 
+        let chat_page = model.chat_page.widget();
+
         // Insert the macro code generation here
         let widgets = view_output! {};
 
-        let startup_page = model.startup_page.widget();
-        let chat_page = model.chat_page.widget();
-        widgets.page_stack.add_named(startup_page, Some("startup"));
-        widgets.page_stack.add_named(chat_page, Some("chat"));
-        widgets.page_stack.set_visible_child_name("startup");
-
-        ComponentParts { model, widgets }
+        AsyncComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, _: ComponentSender<Self>) {
+    async fn update(
+        &mut self,
+        msg: Self::Input,
+        _sender: AsyncComponentSender<Self>,
+        _root: &Self::Root,
+    ) {
         match msg {
-            AppInputMsg::ShowChatPage => {
+            AppMsg::ShowChatPage => {
                 tracing::info!("Switching to Chat Page");
                 self.state = AppState::ChatPage;
             }
-            AppInputMsg::PullModelStart(model) => {
+            AppMsg::PullModelStart(model) => {
                 tracing::info!("Pulling model {}", model);
                 self.ollama
                     .sender()
                     .emit(OllamaInputMsg::PullModelStart(model));
                 self.state = AppState::PullingModel;
             }
-            AppInputMsg::PullModelEnd(model) => {
+            AppMsg::PullModelEnd(model) => {
                 tracing::info!("successfully pulled model");
                 self.model = Some(model.clone());
                 self.state = AppState::WaitingForUserInput;
                 self.chat_page.sender().emit(ChatPageInputMsg::ModelReady);
             }
-            AppInputMsg::SendInputToAssistant(message) => {
+            AppMsg::SendInputToAssistant(message) => {
                 tracing::info!("Sending user input to assistant");
                 self.ollama.sender().emit(OllamaInputMsg::Chat(
                     self.model.clone().expect("Model to be set"),
@@ -152,19 +178,19 @@ impl SimpleComponent for App {
                 ));
                 self.state = AppState::ReceivingAnswer;
             }
-            AppInputMsg::AssistantAnswerStart => {
+            AppMsg::AssistantAnswerStart => {
                 tracing::info!("Starting to receive answer");
                 self.chat_page
                     .sender()
                     .emit(ChatPageInputMsg::AssistantAnswerStart);
             }
-            AppInputMsg::AssistantAnswerChunk(answer) => {
+            AppMsg::AssistantAnswerChunk(answer) => {
                 tracing::info!("Receiving answer");
                 self.chat_page
                     .sender()
                     .emit(ChatPageInputMsg::AssistantAnswerProgress(answer));
             }
-            AppInputMsg::AssistantAnswerEnd => {
+            AppMsg::AssistantAnswerEnd => {
                 tracing::info!("Finished receiving answer");
                 self.chat_page
                     .sender()
@@ -207,5 +233,5 @@ fn main() {
     settings.connect_gtk_theme_name_notify(load_css);
     load_css(&settings);
 
-    relm_app.run::<App>(());
+    relm_app.run_async::<App>(());
 }
