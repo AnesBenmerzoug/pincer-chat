@@ -1,8 +1,7 @@
+mod assistant;
 mod components;
 mod ollama;
 mod pages;
-
-use std::time::Duration;
 
 use gtk::prelude::*;
 use relm4::prelude::*;
@@ -12,11 +11,12 @@ use relm4::{
     loading_widgets::LoadingWidgets,
     view, RelmApp,
 };
+use std::sync::mpsc;
+use std::time::Duration;
 use tokio;
 use tracing;
 
-use crate::components::ollama::OllamaComponent;
-use crate::components::ollama::{OllamaInputMsg, OllamaOutputMsg};
+use crate::assistant::Assistant;
 use crate::ollama::types::Message;
 use crate::pages::chat::{ChatPage, ChatPageInputMsg, ChatPageOutputMsg};
 
@@ -24,31 +24,16 @@ const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 
 #[derive(Debug)]
 struct App {
-    state: AppState,
+    assistant: Assistant,
     model: Option<String>,
     // Components
     chat_page: Controller<ChatPage>,
-    ollama: Controller<OllamaComponent>,
-}
-
-#[derive(Debug, Clone)]
-enum AppState {
-    StartupPage,
-    ChatPage,
-    PullingModel,
-    WaitingForUserInput,
-    ReceivingAnswer,
 }
 
 #[derive(Debug)]
 enum AppMsg {
-    ShowChatPage,
-    PullModelStart(String),
-    PullModelEnd(String),
-    AssistantAnswerStart,
-    AssistantAnswerChunk(Message),
-    AssistantAnswerEnd,
-    SendInputToAssistant(Message),
+    PullModelRequest(String),
+    GenerateAnswer(Message),
 }
 
 #[relm4::component(async)]
@@ -95,6 +80,7 @@ impl AsyncComponent for App {
                         set_spinning: true,
                     },
                     gtk::Label {
+                        #[watch]
                         set_label: "Starting up application...",
                     },
                 },
@@ -108,34 +94,59 @@ impl AsyncComponent for App {
         root: Self::Root,
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        dbg!(root.child());
+
+        let assistant = Assistant::new();
+        tracing::info!("Checking if Ollama is running");
+        loop {
+            match assistant.is_ollama_running().await {
+                true => {
+                    tracing::info!("Ollama is running");
+                    break;
+                }
+                false => {
+                    tracing::warn!("Ollama is not running. Waiting");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        }
+
+        let models = match assistant.list_models().await {
+            Ok(models) => models,
+            Err(err) => {
+                tracing::error!("Could not retrieve list of local models because of: {err}");
+                panic!("Could not retrieve list of local models");
+            }
+        };
+
+        let mut model = String::from("llama3.2:1b");
+        if models.len() == 0 {
+            tracing::info!("No local model found. Pulling {model} as default model");
+            let (response_sender, _) = mpsc::channel();
+            match assistant.pull_model(model.clone(), response_sender).await {
+                Ok(_) => {}
+                Err(_) => {}
+            }
+        } else {
+            tracing::info!(
+                "Found {} local model. Using {} as default model",
+                models.len(),
+                models[0]
+            );
+            model = models[0].clone();
+        }
 
         let chat_page = ChatPage::builder()
             .launch(())
             .forward(sender.input_sender(), |output| match output {
-                ChatPageOutputMsg::TriggerModelPull(model) => AppMsg::PullModelStart(model),
-                ChatPageOutputMsg::GetAssistantAnswer(message) => {
-                    AppMsg::SendInputToAssistant(message)
-                }
+                ChatPageOutputMsg::TriggerModelPull(model) => AppMsg::PullModelRequest(model),
+                ChatPageOutputMsg::GetAssistantAnswer(message) => AppMsg::GenerateAnswer(message),
             });
 
-        let ollama =
-            OllamaComponent::builder()
-                .launch(())
-                .forward(sender.input_sender(), |output| match output {
-                    OllamaOutputMsg::PullModelEnd(model) => AppMsg::PullModelEnd(model),
-                    OllamaOutputMsg::ChatAnswerStart => AppMsg::AssistantAnswerStart,
-                    OllamaOutputMsg::ChatAnswerChunk(answer) => {
-                        AppMsg::AssistantAnswerChunk(answer)
-                    }
-                    OllamaOutputMsg::ChatAnswerEnd => AppMsg::AssistantAnswerEnd,
-                });
-
         let model = App {
-            state: AppState::StartupPage,
-            model: None,
+            model: Some(model),
+            assistant,
             chat_page,
-            ollama: ollama,
         };
 
         let chat_page = model.chat_page.widget();
@@ -152,50 +163,44 @@ impl AsyncComponent for App {
         _sender: AsyncComponentSender<Self>,
         _root: &Self::Root,
     ) {
+        tracing::info!("Update");
         match msg {
-            AppMsg::ShowChatPage => {
-                tracing::info!("Switching to Chat Page");
-                self.state = AppState::ChatPage;
-            }
-            AppMsg::PullModelStart(model) => {
+            AppMsg::PullModelRequest(model) => {
                 tracing::info!("Pulling model {}", model);
-                self.ollama
-                    .sender()
-                    .emit(OllamaInputMsg::PullModelStart(model));
-                self.state = AppState::PullingModel;
-            }
-            AppMsg::PullModelEnd(model) => {
-                tracing::info!("successfully pulled model");
-                self.model = Some(model.clone());
-                self.state = AppState::WaitingForUserInput;
-                self.chat_page.sender().emit(ChatPageInputMsg::ModelReady);
-            }
-            AppMsg::SendInputToAssistant(message) => {
-                tracing::info!("Sending user input to assistant");
-                self.ollama.sender().emit(OllamaInputMsg::Chat(
-                    self.model.clone().expect("Model to be set"),
-                    message,
-                ));
-                self.state = AppState::ReceivingAnswer;
-            }
-            AppMsg::AssistantAnswerStart => {
-                tracing::info!("Starting to receive answer");
+                let (response_sender, response_receiver) = mpsc::channel();
                 self.chat_page
                     .sender()
-                    .emit(ChatPageInputMsg::AssistantAnswerStart);
+                    .emit(ChatPageInputMsg::PullModelResponse(response_receiver));
+                match self
+                    .assistant
+                    .pull_model(
+                        self.model.clone().expect("Model to be set"),
+                        response_sender,
+                    )
+                    .await
+                {
+                    Ok(_) => {}
+                    Err(_) => {}
+                }
             }
-            AppMsg::AssistantAnswerChunk(answer) => {
-                tracing::info!("Receiving answer");
+            AppMsg::GenerateAnswer(message) => {
+                tracing::info!("Generating assistant answer");
+                let (response_sender, response_receiver) = mpsc::channel();
                 self.chat_page
                     .sender()
-                    .emit(ChatPageInputMsg::AssistantAnswerProgress(answer));
-            }
-            AppMsg::AssistantAnswerEnd => {
-                tracing::info!("Finished receiving answer");
-                self.chat_page
-                    .sender()
-                    .emit(ChatPageInputMsg::AssistantAnswerEnd);
-                self.state = AppState::WaitingForUserInput;
+                    .emit(ChatPageInputMsg::AssistantAnswer(response_receiver));
+                match self
+                    .assistant
+                    .generate_answer(
+                        self.model.clone().expect("Model to be set"),
+                        message,
+                        response_sender,
+                    )
+                    .await
+                {
+                    Ok(_) => {}
+                    Err(_) => {}
+                }
             }
         }
     }

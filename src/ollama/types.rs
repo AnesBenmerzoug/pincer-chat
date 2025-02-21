@@ -46,6 +46,29 @@ pub struct PullModelResponse {
     pub completed: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListModelResponse {
+    pub models: Vec<ListModelSingleModelResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListModelSingleModelResponse {
+    pub name: String,
+    pub modified_at: String,
+    pub size: u64,
+    pub digest: String,
+    pub details: ModelDetails,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ModelDetails {
+    pub format: String,
+    pub family: String,
+    pub families: Option<Vec<String>>,
+    pub parameter_size: String,
+    pub quantization_level: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ChatRequest {
     pub model: String,

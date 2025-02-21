@@ -1,12 +1,14 @@
+use futures::FutureExt;
 use gtk::prelude::*;
 use relm4::prelude::*;
+use std::sync::mpsc;
 use tracing;
 
 use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
 };
-use crate::ollama::types::{Message, Role};
+use crate::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
 
 #[derive(Debug)]
 pub struct ChatPage {
@@ -18,11 +20,15 @@ pub struct ChatPage {
 #[derive(Debug)]
 pub enum ChatPageInputMsg {
     SelectModel(String),
-    ModelReady,
+    PullModelResponse(mpsc::Receiver<Option<PullModelResponse>>),
     SubmitUserInput(String),
-    AssistantAnswerStart,
-    AssistantAnswerProgress(Message),
-    AssistantAnswerEnd,
+    AssistantAnswer(mpsc::Receiver<Option<ChatResponse>>),
+}
+
+#[derive(Debug)]
+pub enum ChatPageCmdMsg {
+    PullModelDone,
+    ChatDone,
 }
 
 #[derive(Debug)]
@@ -32,10 +38,11 @@ pub enum ChatPageOutputMsg {
 }
 
 #[relm4::component(pub)]
-impl SimpleComponent for ChatPage {
+impl Component for ChatPage {
     type Init = ();
     type Input = ChatPageInputMsg;
     type Output = ChatPageOutputMsg;
+    type CommandOutput = ChatPageCmdMsg;
 
     view! {
         gtk::Box {
@@ -43,33 +50,6 @@ impl SimpleComponent for ChatPage {
             set_margin_all: 5,
             set_spacing: 5,
             set_css_classes: &["main_container"],
-
-            // Model Selection
-            gtk::Box {
-                set_orientation: gtk::Orientation::Horizontal,
-                set_margin_all: 5,
-                set_spacing: 5,
-                set_halign: gtk::Align::Fill,
-                set_valign: gtk::Align::Start,
-
-                gtk::Label {
-                    set_label: "Model",
-                },
-                #[name = "model_selection_drop_down"]
-                gtk::DropDown::from_strings(&["deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
-                    set_hexpand: true,
-                    set_halign: gtk::Align::Fill,
-                    connect_selected_notify[sender] => move |model_drop_down| {
-                        sender.input(ChatPageInputMsg::SelectModel(
-                            model_drop_down
-                            .selected_item()
-                            .expect("Getting selected item from dropdown should work")
-                            .downcast::<gtk::StringObject>()
-                            .expect("Conversion of gtk StringObject to String should work")
-                            .into()))
-                    },
-                },
-            },
 
             // Message bubbles
             #[local_ref]
@@ -106,19 +86,10 @@ impl SimpleComponent for ChatPage {
 
         let widgets = view_output!();
 
-        let default_model = widgets
-            .model_selection_drop_down
-            .selected_item()
-            .unwrap()
-            .downcast::<gtk::StringObject>()
-            .unwrap()
-            .into();
-        sender.input(ChatPageInputMsg::SelectModel(default_model));
-
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _: &Self::Root) {
         match message {
             ChatPageInputMsg::SelectModel(model) => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Disable);
@@ -126,8 +97,36 @@ impl SimpleComponent for ChatPage {
                     .output_sender()
                     .emit(ChatPageOutputMsg::TriggerModelPull(model));
             }
-            ChatPageInputMsg::ModelReady => {
-                self.chat_input.sender().emit(ChatInputInputMsg::Enable);
+            ChatPageInputMsg::PullModelResponse(receiver) => {
+                sender.command(|out, shutdown: relm4::ShutdownReceiver| {
+                    shutdown
+                        .register(async move {
+                            loop {
+                                match receiver.try_recv() {
+                                    Ok(response) => match response {
+                                        Some(response) => tracing::info!(
+                                            "Received pull model response: {:?}",
+                                            response
+                                        ),
+                                        None => {
+                                            tracing::info!(
+                                                "Finished receiving pull model response"
+                                            );
+                                            out.emit(ChatPageCmdMsg::PullModelDone);
+                                            break;
+                                        }
+                                    },
+                                    Err(_) => {
+                                        tracing::error!("Error receiving pull model response")
+                                    }
+                                }
+                            }
+                        })
+                        // Perform task until a shutdown interrupts it
+                        .drop_on_shutdown()
+                        // Wrap into a `Pin<Box<Future>>` for return
+                        .boxed()
+                })
             }
             ChatPageInputMsg::SubmitUserInput(user_input) => {
                 let message = Message {
@@ -142,20 +141,55 @@ impl SimpleComponent for ChatPage {
                     .emit(ChatPageOutputMsg::GetAssistantAnswer(message));
                 self.chat_input.sender().emit(ChatInputInputMsg::Disable);
             }
-            ChatPageInputMsg::AssistantAnswerStart => {
-                self.message_bubbles
-                    .sender()
-                    .emit(MessageBubbleContainerInputMsg::AddMessage(Message {
-                        role: Role::Assistant,
-                        content: String::new(),
-                    }));
+            ChatPageInputMsg::AssistantAnswer(receiver) => {
+                sender.command(|out, shutdown: relm4::ShutdownReceiver| {
+                    shutdown
+                        .register(async move {
+                            loop {
+                                match receiver.try_recv() {
+                                    Ok(response) => match response {
+                                        Some(response) => tracing::info!(
+                                            "Received assistant answer: {:?}",
+                                            response
+                                        ),
+                                        None => {
+                                            tracing::info!("Finished receiving assistant answer");
+                                            out.emit(ChatPageCmdMsg::ChatDone);
+                                            break;
+                                        }
+                                    },
+                                    Err(error) => {
+                                        match error {
+                                            mpsc::TryRecvError::Empty => {},
+                                            mpsc::TryRecvError::Disconnected => {
+                                                tracing::error!("Error receiving assistant answer because of: {error}");
+                                                break;
+                                            },
+                                        }
+                                    }
+                                }
+                            }
+                        })
+                        // Perform task until a shutdown interrupts it
+                        .drop_on_shutdown()
+                        // Wrap into a `Pin<Box<Future>>` for return
+                        .boxed()
+                })
             }
-            ChatPageInputMsg::AssistantAnswerProgress(message) => {
-                self.message_bubbles
-                    .sender()
-                    .emit(MessageBubbleContainerInputMsg::AppendToLastMessage(message));
+        }
+    }
+
+    fn update_cmd(
+        &mut self,
+        message: Self::CommandOutput,
+        _sender: ComponentSender<Self>,
+        _root: &Self::Root,
+    ) {
+        match message {
+            ChatPageCmdMsg::PullModelDone => {
+                self.chat_input.sender().emit(ChatInputInputMsg::Enable);
             }
-            ChatPageInputMsg::AssistantAnswerEnd => {
+            ChatPageCmdMsg::ChatDone => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Enable);
             }
         }

@@ -68,7 +68,6 @@ impl Component for ChatInputComponent {
             gtk::Button {
                 set_label: "Send",
                 set_css_classes: &["submit_button"],
-                set_sensitive: true,
 
                 connect_clicked => ChatInputInputMsg::Disable,
             },
@@ -78,7 +77,6 @@ impl Component for ChatInputComponent {
                 set_icon_name: "open-menu-symbolic",
                 set_icon_name: "preferences-system-symbolic",
                 set_css_classes: &["option_menu_button"],
-                set_sensitive: true,
                 connect_clicked => ChatInputInputMsg::ShowOptionsDialog,
             }
         },
