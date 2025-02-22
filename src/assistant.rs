@@ -95,10 +95,10 @@ impl Assistant {
                         tracing::debug!("chat response: {:?}", chat_response);
                         sender.send(Some(chat_response))?;
                     }
-                    Err(_) => {
-                        tracing::error!("Error while receiving chat response");
+                    Err(error) => {
+                        tracing::error!("Error while receiving chat response because of: {error}");
                         drop(sender);
-                        return Err(anyhow!("Error while receiving chat response"));
+                        return Err(error);
                     }
                 },
                 None => {

@@ -2,6 +2,7 @@ use futures::FutureExt;
 use gtk::prelude::*;
 use relm4::prelude::*;
 use std::sync::mpsc;
+use tokio::time::Duration;
 use tracing;
 
 use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
@@ -29,6 +30,7 @@ pub enum ChatPageInputMsg {
 pub enum ChatPageCmdMsg {
     PullModelDone,
     ChatDone,
+    AppendToMessage(Message),
 }
 
 #[derive(Debug)]
@@ -116,8 +118,16 @@ impl Component for ChatPage {
                                             break;
                                         }
                                     },
-                                    Err(_) => {
-                                        tracing::error!("Error receiving pull model response")
+                                    Err(error) => {
+                                        match error {
+                                            mpsc::TryRecvError::Empty => {
+                                                tokio::time::sleep(Duration::from_millis(100)).await;
+                                            },
+                                            mpsc::TryRecvError::Disconnected => {
+                                                tracing::error!("Error receiving pull model response because of: {error}");
+                                                break;
+                                            },
+                                        }
                                     }
                                 }
                             }
@@ -139,19 +149,28 @@ impl Component for ChatPage {
                 sender
                     .output_sender()
                     .emit(ChatPageOutputMsg::GetAssistantAnswer(message));
-                self.chat_input.sender().emit(ChatInputInputMsg::Disable);
             }
             ChatPageInputMsg::AssistantAnswer(receiver) => {
+                let message = Message {
+                    content: String::new(),
+                    role: Role::Assistant,
+                };
+                self.message_bubbles
+                    .sender()
+                    .emit(MessageBubbleContainerInputMsg::AddMessage(message));
                 sender.command(|out, shutdown: relm4::ShutdownReceiver| {
                     shutdown
                         .register(async move {
                             loop {
                                 match receiver.try_recv() {
                                     Ok(response) => match response {
-                                        Some(response) => tracing::info!(
-                                            "Received assistant answer: {:?}",
-                                            response
-                                        ),
+                                        Some(response) => {
+                                            tracing::info!(
+                                                "Received assistant answer: {:?}",
+                                                response
+                                            );
+                                            out.emit(ChatPageCmdMsg::AppendToMessage(response.message));
+                                        },
                                         None => {
                                             tracing::info!("Finished receiving assistant answer");
                                             out.emit(ChatPageCmdMsg::ChatDone);
@@ -160,7 +179,9 @@ impl Component for ChatPage {
                                     },
                                     Err(error) => {
                                         match error {
-                                            mpsc::TryRecvError::Empty => {},
+                                            mpsc::TryRecvError::Empty => {
+                                                tokio::time::sleep(Duration::from_millis(100)).await;
+                                            },
                                             mpsc::TryRecvError::Disconnected => {
                                                 tracing::error!("Error receiving assistant answer because of: {error}");
                                                 break;
@@ -188,6 +209,11 @@ impl Component for ChatPage {
         match message {
             ChatPageCmdMsg::PullModelDone => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Enable);
+            }
+            ChatPageCmdMsg::AppendToMessage(message) => {
+                self.message_bubbles
+                    .sender()
+                    .emit(MessageBubbleContainerInputMsg::AppendToLastMessage(message));
             }
             ChatPageCmdMsg::ChatDone => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Enable);

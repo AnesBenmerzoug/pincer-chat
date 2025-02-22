@@ -117,7 +117,7 @@ impl Component for ChatInputComponent {
                     tracing::info!("Submitting user input {}", text.to_string());
                     sender
                         .output(ChatInputOutputMsg::SubmitUserInput(text.to_string()))
-                        .expect("Sending componet message should work");
+                        .expect("Sending component message should work");
                     tracing::info!("Clearing user input field");
                     self.user_input.set_text("");
                     tracing::info!("Disabling user input temporarily");

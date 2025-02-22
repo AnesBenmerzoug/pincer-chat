@@ -198,8 +198,12 @@ impl AsyncComponent for App {
                     )
                     .await
                 {
-                    Ok(_) => {}
-                    Err(_) => {}
+                    Ok(_) => {
+                        tracing::info!("Successfully generated assistant answer");
+                    }
+                    Err(error) => {
+                        tracing::error!("Failed generating assistant answer because of: {error}");
+                    }
                 }
             }
         }

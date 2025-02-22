@@ -60,7 +60,7 @@ impl Component for MessageBubbleContainerComponent {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, _: ComponentSender<Self>, _: &Self::Root) {
         match message {
             MessageBubbleContainerInputMsg::AddMessage(message) => {
                 let mut guard = self.message_bubbles.guard();
@@ -86,6 +86,17 @@ pub struct MessageBubbleComponent {
 }
 
 impl MessageBubbleComponent {
+    pub fn new(message: Message) -> Self {
+        let buffer = gtk::TextBuffer::builder().text(&*message.content).build();
+        let timestamp = Local::now().format("%d %B %Y at %R").to_string();
+        let role = message.role;
+        Self {
+            buffer,
+            role,
+            timestamp,
+        }
+    }
+
     pub fn append_to_message(&mut self, other: Message) -> Result<()> {
         if self.role != other.role {
             return Err(anyhow!("the two message roles should be the same"));
@@ -115,6 +126,8 @@ impl FactoryComponent for MessageBubbleComponent {
                 set_text: &*self.timestamp,
             },
             gtk::TextView {
+                set_height_request: 40,
+
                 #[watch]
                 set_buffer: Some(&self.buffer),
                 set_focusable: false,
@@ -131,20 +144,7 @@ impl FactoryComponent for MessageBubbleComponent {
         }
     }
 
-    fn init_model(
-        message: Self::Init,
-        _index: &DynamicIndex,
-        _sender: FactorySender<Self>,
-    ) -> Self {
-        let buffer = gtk::TextBuffer::default();
-        buffer.set_text(&*message.content);
-        let role = message.role;
-        let timestamp = Local::now();
-        let timestamp = timestamp.format("%d %B %Y at %R").to_string();
-        Self {
-            buffer,
-            role,
-            timestamp,
-        }
+    fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+        Self::new(init)
     }
 }
