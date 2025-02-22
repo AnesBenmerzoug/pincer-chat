@@ -1,6 +1,5 @@
 mod assistant;
 mod components;
-mod ollama;
 mod pages;
 
 use gtk::prelude::*;
@@ -16,8 +15,7 @@ use std::time::Duration;
 use tokio;
 use tracing;
 
-use crate::assistant::Assistant;
-use crate::ollama::types::Message;
+use crate::assistant::{ollama::types::Message, Assistant};
 use crate::pages::chat::{ChatPage, ChatPageInputMsg, ChatPageOutputMsg};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";

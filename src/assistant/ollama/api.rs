@@ -7,7 +7,7 @@ use reqwest;
 use serde_json;
 use tracing;
 
-use crate::ollama::types::{
+use super::types::{
     ChatRequest, ChatResponse, ListModelResponse, Message, PullModelRequest, PullModelResponse,
     VersionResponse,
 };

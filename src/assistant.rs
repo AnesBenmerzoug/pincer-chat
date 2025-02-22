@@ -1,9 +1,11 @@
+pub mod ollama;
+
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use std::sync::mpsc;
 
-use crate::ollama::{
-    client::{chat, list_models, pull_model, version},
+use self::ollama::{
+    api::{chat, list_models, pull_model, version},
     types::{ChatResponse, Message, PullModelResponse},
 };
 

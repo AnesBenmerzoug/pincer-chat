@@ -5,11 +5,11 @@ use std::sync::mpsc;
 use tokio::time::Duration;
 use tracing;
 
+use crate::assistant::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
 use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
 };
-use crate::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
 
 #[derive(Debug)]
 pub struct ChatPage {

@@ -3,7 +3,7 @@ use chrono::prelude::*;
 use gtk::prelude::*;
 use relm4::prelude::*;
 
-use crate::ollama::types::{Message, Role};
+use crate::assistant::ollama::types::{Message, Role};
 
 #[derive(Debug)]
 pub struct MessageBubbleContainerComponent {
