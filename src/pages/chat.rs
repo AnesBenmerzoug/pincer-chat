@@ -6,6 +6,10 @@ use tokio::time::Duration;
 use tracing;
 
 use crate::assistant::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
+use crate::assistant::AssistantParameters;
+use crate::components::assistant_options_dialog::{
+    AssistantOptionsDialog, AssistantOptionsDialogInputMsg, AssistantOptionsDialogOutputMsg,
+};
 use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
@@ -16,11 +20,13 @@ pub struct ChatPage {
     // Components
     message_bubbles: Controller<MessageBubbleContainerComponent>,
     chat_input: Controller<ChatInputComponent>,
+    options_dialog: Controller<AssistantOptionsDialog>,
 }
 
 #[derive(Debug)]
 pub enum ChatPageInputMsg {
-    SelectModel(String),
+    ShowOptionsDialog,
+    SetAssistantOptions(AssistantParameters),
     PullModelResponse(mpsc::Receiver<Option<PullModelResponse>>),
     SubmitUserInput(String),
     AssistantAnswer(mpsc::Receiver<Option<ChatResponse>>),
@@ -37,6 +43,7 @@ pub enum ChatPageCmdMsg {
 pub enum ChatPageOutputMsg {
     TriggerModelPull(String),
     GetAssistantAnswer(Message),
+    SetAssistantOptions(AssistantParameters),
 }
 
 #[relm4::component(pub)]
@@ -53,6 +60,25 @@ impl Component for ChatPage {
             set_spacing: 5,
             set_css_classes: &["main_container"],
 
+            gtk::Box {
+                set_hexpand: true,
+                set_halign: gtk::Align::Fill,
+                set_orientation: gtk::Orientation::Horizontal,
+
+                gtk::Box {
+                    set_hexpand: true,
+                    set_halign: gtk::Align::Fill,
+                },
+
+                #[name = "option_menu_button"]
+                gtk::Button {
+                    set_icon_name: "open-menu-symbolic",
+                    set_icon_name: "preferences-system-symbolic",
+                    set_css_classes: &["option_menu_button"],
+                    connect_clicked => ChatPageInputMsg::ShowOptionsDialog,
+                },
+            },
+
             // Message bubbles
             #[local_ref]
             message_bubbles -> gtk::Box{},
@@ -64,6 +90,15 @@ impl Component for ChatPage {
     }
 
     fn init(_: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
+        let options_dialog = AssistantOptionsDialog::builder()
+            .transient_for(&root)
+            .launch(())
+            .forward(sender.input_sender(), |output| match output {
+                AssistantOptionsDialogOutputMsg::SendOptions(options) => {
+                    ChatPageInputMsg::SetAssistantOptions(options)
+                }
+            });
+
         let message_bubbles = MessageBubbleContainerComponent::builder()
             .launch(())
             .detach();
@@ -80,6 +115,7 @@ impl Component for ChatPage {
         let model = ChatPage {
             message_bubbles,
             chat_input,
+            options_dialog,
         };
 
         // References used in the view macro
@@ -93,11 +129,16 @@ impl Component for ChatPage {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _: &Self::Root) {
         match message {
-            ChatPageInputMsg::SelectModel(model) => {
+            ChatPageInputMsg::ShowOptionsDialog => {
+                self.options_dialog
+                    .sender()
+                    .emit(AssistantOptionsDialogInputMsg::Show);
+            }
+            ChatPageInputMsg::SetAssistantOptions(options) => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Disable);
                 sender
                     .output_sender()
-                    .emit(ChatPageOutputMsg::TriggerModelPull(model));
+                    .emit(ChatPageOutputMsg::SetAssistantOptions(options));
             }
             ChatPageInputMsg::PullModelResponse(receiver) => {
                 sender.command(|out, shutdown: relm4::ShutdownReceiver| {

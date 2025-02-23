@@ -15,7 +15,7 @@ use std::time::Duration;
 use tokio;
 use tracing;
 
-use crate::assistant::{ollama::types::Message, Assistant};
+use crate::assistant::{ollama::types::Message, Assistant, AssistantParameters};
 use crate::pages::chat::{ChatPage, ChatPageInputMsg, ChatPageOutputMsg};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
@@ -23,7 +23,6 @@ const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 #[derive(Debug)]
 struct App {
     assistant: Assistant,
-    model: Option<String>,
     // Components
     chat_page: Controller<ChatPage>,
 }
@@ -32,6 +31,7 @@ struct App {
 enum AppMsg {
     PullModelRequest(String),
     GenerateAnswer(Message),
+    SetAssistantOptions(AssistantParameters),
 }
 
 #[relm4::component(async)]
@@ -94,7 +94,7 @@ impl AsyncComponent for App {
     ) -> AsyncComponentParts<Self> {
         dbg!(root.child());
 
-        let assistant = Assistant::new();
+        let mut assistant = Assistant::new();
         tracing::info!("Checking if Ollama is running");
         loop {
             match assistant.is_ollama_running().await {
@@ -119,19 +119,24 @@ impl AsyncComponent for App {
 
         let mut model = String::from("llama3.2:1b");
         if models.len() == 0 {
-            tracing::info!("No local model found. Pulling {model} as default model");
-            let (response_sender, _) = mpsc::channel();
-            match assistant.pull_model(model.clone(), response_sender).await {
-                Ok(_) => {}
-                Err(_) => {}
-            }
+            tracing::info!("No local model found. Using {model} as default model");
         } else {
             tracing::info!(
-                "Found {} local model. Using {} as default model",
+                "Found {} local models. Using {} as default model",
                 models.len(),
                 models[0]
             );
             model = models[0].clone();
+        }
+
+        assistant.set_model(model.clone());
+        {
+            tracing::info!("Pulling {model}");
+            let (response_sender, _) = mpsc::channel();
+            match assistant.pull_model(model, response_sender).await {
+                Ok(_) => {}
+                Err(_) => {}
+            }
         }
 
         let chat_page = ChatPage::builder()
@@ -139,10 +144,12 @@ impl AsyncComponent for App {
             .forward(sender.input_sender(), |output| match output {
                 ChatPageOutputMsg::TriggerModelPull(model) => AppMsg::PullModelRequest(model),
                 ChatPageOutputMsg::GetAssistantAnswer(message) => AppMsg::GenerateAnswer(message),
+                ChatPageOutputMsg::SetAssistantOptions(options) => {
+                    AppMsg::SetAssistantOptions(options)
+                }
             });
 
         let model = App {
-            model: Some(model),
             assistant,
             chat_page,
         };
@@ -171,14 +178,18 @@ impl AsyncComponent for App {
                     .emit(ChatPageInputMsg::PullModelResponse(response_receiver));
                 match self
                     .assistant
-                    .pull_model(
-                        self.model.clone().expect("Model to be set"),
-                        response_sender,
-                    )
+                    .pull_model(model.clone(), response_sender)
                     .await
                 {
-                    Ok(_) => {}
-                    Err(_) => {}
+                    Ok(_) => {
+                        tracing::info!(
+                            "Pulling model was successful. Setting {model} as current model"
+                        );
+                        self.assistant.set_model(model);
+                    }
+                    Err(error) => {
+                        tracing::error!("Pulling model failed because of: {error}");
+                    }
                 }
             }
             AppMsg::GenerateAnswer(message) => {
@@ -189,11 +200,7 @@ impl AsyncComponent for App {
                     .emit(ChatPageInputMsg::AssistantAnswer(response_receiver));
                 match self
                     .assistant
-                    .generate_answer(
-                        self.model.clone().expect("Model to be set"),
-                        message,
-                        response_sender,
-                    )
+                    .generate_answer(message, response_sender)
                     .await
                 {
                     Ok(_) => {
@@ -203,6 +210,9 @@ impl AsyncComponent for App {
                         tracing::error!("Failed generating assistant answer because of: {error}");
                     }
                 }
+            }
+            AppMsg::SetAssistantOptions(options) => {
+                self.assistant.set_parameters(options);
             }
         }
     }

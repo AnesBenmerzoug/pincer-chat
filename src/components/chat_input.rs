@@ -1,15 +1,10 @@
 use gtk::prelude::*;
 use relm4::prelude::*;
 
-use crate::components::assistant_options_dialog::AssistantOptionsDialog;
-
-use super::assistant_options_dialog::AssistantOptionsDialogInputMsg;
-
 #[derive(Debug)]
 pub struct ChatInputComponent {
     enabled: bool,
     user_input: gtk::EntryBuffer,
-    options_dialog: Controller<AssistantOptionsDialog>,
 }
 
 #[derive(Debug)]
@@ -17,7 +12,6 @@ pub enum ChatInputInputMsg {
     Enable,
     Disable,
     Submit,
-    ShowOptionsDialog,
 }
 
 #[derive(Debug)]
@@ -66,19 +60,12 @@ impl Component for ChatInputComponent {
 
             #[name = "submit_button"]
             gtk::Button {
-                set_label: "Send",
+                set_tooltip_text: Some("Submit message"),
+                set_icon_name: "document-send-symbolic",
                 set_css_classes: &["submit_button"],
 
                 connect_clicked => ChatInputInputMsg::Disable,
             },
-
-            #[name = "option_menu_button"]
-            gtk::Button {
-                set_icon_name: "open-menu-symbolic",
-                set_icon_name: "preferences-system-symbolic",
-                set_css_classes: &["option_menu_button"],
-                connect_clicked => ChatInputInputMsg::ShowOptionsDialog,
-            }
         },
     }
 
@@ -87,15 +74,9 @@ impl Component for ChatInputComponent {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let options_dialog = AssistantOptionsDialog::builder()
-            .transient_for(&root)
-            .launch(())
-            .detach();
-
         let model = ChatInputComponent {
             enabled: true,
             user_input: gtk::EntryBuffer::default(),
-            options_dialog,
         };
 
         let widgets = view_output!();
@@ -123,11 +104,6 @@ impl Component for ChatInputComponent {
                     tracing::info!("Disabling user input temporarily");
                     self.disable();
                 };
-            }
-            ChatInputInputMsg::ShowOptionsDialog => {
-                self.options_dialog
-                    .sender()
-                    .emit(AssistantOptionsDialogInputMsg::Show);
             }
         }
     }

@@ -24,16 +24,47 @@ impl Messages {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AssistantParameters {
+    pub model: Option<String>,
+    pub temperature: f64,
+    pub top_k: u64,
+    pub top_p: f64,
+    pub seed: u64,
+}
+
+impl Default for AssistantParameters {
+    fn default() -> Self {
+        Self {
+            model: None,
+            temperature: 0.5,
+            top_k: 40,
+            top_p: 0.9,
+            seed: 42,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Assistant {
     messages: Messages,
+    parameters: AssistantParameters,
 }
 
 impl Assistant {
     pub fn new() -> Self {
         Assistant {
             messages: Messages::default(),
+            parameters: AssistantParameters::default(),
         }
+    }
+
+    pub fn set_model(&mut self, model: String) {
+        self.parameters.model = Some(model);
+    }
+
+    pub fn set_parameters(&mut self, parameters: AssistantParameters) {
+        self.parameters = parameters;
     }
 
     pub async fn is_ollama_running(&self) -> bool {
@@ -83,13 +114,12 @@ impl Assistant {
 
     pub async fn generate_answer(
         &mut self,
-        model: String,
         message: Message,
         sender: mpsc::Sender<Option<ChatResponse>>,
     ) -> Result<()> {
         self.messages.add_message(message);
         let messages = self.messages.get_messages();
-        let mut response_stream = chat(model, messages).await?;
+        let mut response_stream = chat(self.parameters.model.clone().unwrap(), messages).await?;
         loop {
             match response_stream.next().await {
                 Some(chat_response) => match chat_response {
