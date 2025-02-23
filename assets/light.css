@@ -1,24 +1,47 @@
+.main_container {
+    background: rgb(255, 252, 240);
+}
+
+.system_message,
+.user_message,
+.assistant_message,
+.tool_message {
+    background: rgb(242, 240, 229);
+    color: rgb(16, 15, 15);
+    box-shadow: rgba(206, 205, 195, 0.5) 0.2rem 0.2rem 0.1rem;
+
+}
+
 .system_message {
-    background: #F48F4B;
-    color: #FFFFFF;
+    backgorund: rgb(188, 82, 21);
 }
 
 .user_message {
-    background: #F3F5F7;
+    background: rgb(36, 131, 123);
 }
 
 .assistant_message {
-    background: #55B1F4;
-    color: #FFFFFF;
+    background: rgb(102, 128, 11);
 }
 
 .tool_message {
-    background: #99ccf1;
-    color: #FFFFFF;
+    background: rgb(160, 47, 111);
 }
 
 .submit_button,
 .option_menu_button {
-    background: #766AA6;
+    background: rgb(94, 64, 157);
     color: #FFFFFF;
+}
+
+.send_button {
+    background: rgb(102, 128, 11);
+}
+
+.cancel_button {
+    background: rgb(175, 48, 41);
+}
+
+.reset_button {
+    background: rgb(36, 131, 123);
 }
