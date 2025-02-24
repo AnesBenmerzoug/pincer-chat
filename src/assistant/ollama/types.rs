@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -20,16 +19,6 @@ pub struct Message {
     pub content: String,
 }
 
-impl Message {
-    pub fn update(&mut self, other: &Self) -> Result<()> {
-        if self.role != other.role {
-            return Err(anyhow!("the two message roles should be the same"));
-        }
-        self.content.push_str(&*other.content);
-        Ok(())
-    }
-}
-
 // Ollama Structs
 #[derive(Debug, Serialize)]
 pub struct PullModelRequest {
@@ -38,6 +27,7 @@ pub struct PullModelRequest {
     pub stream: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct PullModelResponse {
     pub status: String,
@@ -51,6 +41,7 @@ pub struct ListModelResponse {
     pub models: Vec<ListModelSingleModelResponse>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ListModelSingleModelResponse {
     pub name: String,
@@ -60,6 +51,7 @@ pub struct ListModelSingleModelResponse {
     pub details: ModelDetails,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ModelDetails {
     pub format: String,
@@ -76,6 +68,7 @@ pub struct ChatRequest {
     pub stream: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default)]
 pub struct ChatResponse {
     pub model: String,
@@ -90,6 +83,7 @@ pub struct ChatResponse {
     pub eval_duration: Option<u64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default)]
 pub struct VersionResponse {
     pub version: String,

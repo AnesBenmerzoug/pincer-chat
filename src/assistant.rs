@@ -24,6 +24,7 @@ impl Messages {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AssistantParameters {
     pub model: Option<String>,

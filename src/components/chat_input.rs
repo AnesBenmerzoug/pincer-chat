@@ -84,7 +84,7 @@ impl Component for ChatInputComponent {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _: &Self::Root) {
         match message {
             ChatInputInputMsg::Enable => {
                 self.enable();
