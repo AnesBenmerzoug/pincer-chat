@@ -16,7 +16,6 @@ pub enum AssistantOptionsDialogInputMsg {
     ResetOptions,
     SendOptions,
     CancelOptions,
-    SelectedModel(String),
     Temperature(f64),
     TopK(u64),
     TopP(f64),
@@ -57,33 +56,6 @@ impl SimpleComponent for AssistantOptionsDialog {
             #[watch]
             set_visible: model.visible,
             set_modal: true,
-
-            // Model Selection
-            gtk::Box {
-                set_orientation: gtk::Orientation::Horizontal,
-                set_margin_all: 5,
-                set_spacing: 5,
-                set_halign: gtk::Align::Fill,
-                set_valign: gtk::Align::Start,
-
-                gtk::Label {
-                    set_label: "Model",
-                },
-                #[name = "model_selection_drop_down"]
-                gtk::DropDown::from_strings(&["deepseek-r1:1.5b", "deepseek-r1", "llama3.2:1b", "llama3.2"]) {
-                    set_hexpand: true,
-                    set_halign: gtk::Align::Fill,
-                    connect_selected_notify[sender] => move |model_drop_down| {
-                        let selected_model = model_drop_down
-                            .selected_item()
-                            .expect("Getting selected item from dropdown should work")
-                            .downcast::<gtk::StringObject>()
-                            .expect("Conversion of gtk StringObject to String should work")
-                            .into();
-                        sender.input(AssistantOptionsDialogInputMsg::SelectedModel(selected_model));
-                    },
-                },
-            },
 
             // Temperature
             #[template]
@@ -175,28 +147,17 @@ impl SimpleComponent for AssistantOptionsDialog {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let mut model = AssistantOptionsDialog {
+        let model = AssistantOptionsDialog {
             options: AssistantParameters::default(),
             visible: false,
         };
         let widgets = view_output!();
-        let default_model: String = widgets
-            .model_selection_drop_down
-            .selected_item()
-            .expect("Getting selected item from dropdown should work")
-            .downcast::<gtk::StringObject>()
-            .expect("Conversion of gtk StringObject to String should work")
-            .into();
-        model.options.model = Some(default_model);
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             AssistantOptionsDialogInputMsg::Show => self.visible = true,
-            AssistantOptionsDialogInputMsg::SelectedModel(value) => {
-                self.options.model = Some(value)
-            }
             AssistantOptionsDialogInputMsg::Temperature(value) => self.options.temperature = value,
             AssistantOptionsDialogInputMsg::TopK(value) => self.options.top_k = value,
             AssistantOptionsDialogInputMsg::TopP(value) => self.options.top_p = value,

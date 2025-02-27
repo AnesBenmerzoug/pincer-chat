@@ -1,6 +1,7 @@
 pub mod ollama;
 
 use anyhow::{anyhow, Result};
+use futures::Stream;
 use futures::StreamExt;
 use std::sync::mpsc;
 
@@ -88,58 +89,38 @@ impl Assistant {
     pub async fn pull_model(
         &self,
         model: String,
-        sender: mpsc::Sender<Option<PullModelResponse>>,
-    ) -> Result<()> {
-        let mut response_stream = pull_model(model).await?;
-        loop {
-            match response_stream.next().await {
-                Some(pull_response) => match pull_response {
-                    Ok(pull_response) => {
-                        tracing::debug!("pull model status: {:?}", pull_response);
-                        sender.send(Some(pull_response))?;
-                    }
-                    Err(_) => {
-                        tracing::error!("Error while receiving pull model response");
-                        drop(sender);
-                        return Err(anyhow!("Error while receiving chat response"));
-                    }
-                },
-                None => {
-                    tracing::info!("Finished receiving pull model response");
-                    sender.send(None)?;
-                    return Ok(());
-                }
-            };
-        }
+    ) -> Result<impl Stream<Item = Result<PullModelResponse>>> {
+        let response_stream = pull_model(model).await?;
+        let pull_model_stream = response_stream.map(|response| match response {
+            Ok(response) => {
+                tracing::debug!("pull model response: {:?}", response);
+                Ok(response)
+            }
+            Err(error) => {
+                tracing::error!("Error while receiving pull model response because of: {error}");
+                Err(error)
+            }
+        });
+        Ok(pull_model_stream)
     }
 
     pub async fn generate_answer(
         &mut self,
         message: Message,
-        sender: mpsc::Sender<Option<ChatResponse>>,
-    ) -> Result<()> {
+    ) -> Result<impl Stream<Item = Result<Message>>> {
         self.messages.add_message(message);
         let messages = self.messages.get_messages();
-        let mut response_stream = chat(self.parameters.model.clone().unwrap(), messages).await?;
-        loop {
-            match response_stream.next().await {
-                Some(chat_response) => match chat_response {
-                    Ok(chat_response) => {
-                        tracing::debug!("chat response: {:?}", chat_response);
-                        sender.send(Some(chat_response))?;
-                    }
-                    Err(error) => {
-                        tracing::error!("Error while receiving chat response because of: {error}");
-                        drop(sender);
-                        return Err(error);
-                    }
-                },
-                None => {
-                    tracing::info!("Finished receiving chat response");
-                    sender.send(None)?;
-                    return Ok(());
-                }
-            };
-        }
+        let response_stream = chat(self.parameters.model.clone().unwrap(), messages).await?;
+        let generation_stream = response_stream.map(|chat_response| match chat_response {
+            Ok(chat_response) => {
+                tracing::debug!("chat response: {:?}", chat_response);
+                Ok(chat_response.message)
+            }
+            Err(error) => {
+                tracing::error!("Error while receiving chat response because of: {error}");
+                Err(error)
+            }
+        });
+        Ok(generation_stream)
     }
 }

@@ -1,37 +1,39 @@
 mod assistant;
 mod components;
-mod pages;
+mod screens;
 
 use gtk::prelude::*;
+use relm4::component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender};
 use relm4::prelude::*;
-use relm4::{
-    component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender},
-    gtk,
-    loading_widgets::LoadingWidgets,
-    view, RelmApp,
-};
-use std::sync::mpsc;
-use std::time::Duration;
-use tokio;
+use relm4::RelmRemoveAllExt;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing;
 
 use crate::assistant::{ollama::types::Message, Assistant, AssistantParameters};
-use crate::pages::chat::{ChatPage, ChatPageInputMsg, ChatPageOutputMsg};
+use crate::screens::{
+    chat::{ChatPage, ChatPageInputMsg, ChatPageOutputMsg},
+    startup::{StartupPage, StartupPageOutputMsg},
+};
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
 
 #[derive(Debug)]
 struct App {
-    assistant: Assistant,
-    // Components
-    chat_page: Controller<ChatPage>,
+    assistant: Arc<Mutex<Assistant>>,
+    screen: Option<AppScreen>,
+}
+
+#[derive(Debug)]
+enum AppScreen {
+    StartUp(AsyncController<StartupPage>),
+    Chat(AsyncController<ChatPage>),
 }
 
 #[derive(Debug)]
 enum AppMsg {
-    PullModelRequest(String),
-    GenerateAnswer(Message),
-    SetAssistantOptions(AssistantParameters),
+    ShowStartUpScreen,
+    ShowChatScreen,
 }
 
 #[relm4::component(async)]
@@ -42,6 +44,7 @@ impl AsyncComponent for App {
     type CommandOutput = ();
 
     view! {
+        #[root]
         gtk::ApplicationWindow {
             set_title: Some("Chat"),
             set_default_size: (800, 600),
@@ -50,41 +53,16 @@ impl AsyncComponent for App {
             set_halign: gtk::Align::Fill,
             set_valign: gtk::Align::Fill,
 
-            #[local_ref]
-            chat_page -> gtk::Box {},
-        }
-    }
-
-    fn init_loading_widgets(root: Self::Root) -> Option<LoadingWidgets> {
-        view! {
-            #[local]
-            root {
-                set_title: Some("Chat"),
-                set_default_size: (800, 600),
+            #[name = "container"]
+            gtk::Box {
                 set_hexpand: true,
                 set_vexpand: true,
                 set_halign: gtk::Align::Fill,
                 set_valign: gtk::Align::Fill,
-
-                #[name = "widget"]
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_hexpand: true,
-                    set_vexpand: true,
-                    set_halign: gtk::Align::Center,
-                    set_valign: gtk::Align::Center,
-
-                    gtk::Spinner {
-                        set_spinning: true,
-                    },
-                    gtk::Label {
-                        #[watch]
-                        set_label: "Starting up application...",
-                    },
-                },
+                set_width_request: 800,
+                set_height_request: 600,
             }
-        }
-        Some(LoadingWidgets::new(root, widget))
+        },
     }
 
     async fn init(
@@ -92,23 +70,8 @@ impl AsyncComponent for App {
         root: Self::Root,
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
-        dbg!(root.child());
-
-        let mut assistant = Assistant::new();
-        tracing::info!("Checking if Ollama is running");
-        loop {
-            match assistant.is_ollama_running().await {
-                true => {
-                    tracing::info!("Ollama is running");
-                    break;
-                }
-                false => {
-                    tracing::warn!("Ollama is not running. Waiting");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-            }
-        }
-
+        let assistant = Assistant::new();
+        /*
         let models = match assistant.list_models().await {
             Ok(models) => models,
             Err(err) => {
@@ -138,81 +101,48 @@ impl AsyncComponent for App {
                 Err(_) => {}
             }
         }
+        */
 
-        let chat_page = ChatPage::builder()
-            .launch(())
-            .forward(sender.input_sender(), |output| match output {
-                ChatPageOutputMsg::TriggerModelPull(model) => AppMsg::PullModelRequest(model),
-                ChatPageOutputMsg::GetAssistantAnswer(message) => AppMsg::GenerateAnswer(message),
-                ChatPageOutputMsg::SetAssistantOptions(options) => {
-                    AppMsg::SetAssistantOptions(options)
-                }
-            });
-
-        let model = App {
-            assistant,
-            chat_page,
+        let mut model = App {
+            assistant: Arc::new(Mutex::new(assistant)),
+            screen: None,
         };
 
-        let chat_page = model.chat_page.widget();
+        let mut widgets = view_output! {};
 
-        // Insert the macro code generation here
-        let widgets = view_output! {};
+        model
+            .update_with_view(&mut widgets, AppMsg::ShowStartUpScreen, sender, &root)
+            .await;
 
         AsyncComponentParts { model, widgets }
     }
 
-    async fn update(
+    async fn update_with_view(
         &mut self,
-        msg: Self::Input,
-        _sender: AsyncComponentSender<Self>,
-        _root: &Self::Root,
+        widgets: &mut Self::Widgets,
+        message: Self::Input,
+        sender: AsyncComponentSender<Self>,
+        _: &Self::Root,
     ) {
-        tracing::info!("Update");
-        match msg {
-            AppMsg::PullModelRequest(model) => {
-                tracing::info!("Pulling model {}", model);
-                let (response_sender, response_receiver) = mpsc::channel();
-                self.chat_page
-                    .sender()
-                    .emit(ChatPageInputMsg::PullModelResponse(response_receiver));
-                match self
-                    .assistant
-                    .pull_model(model.clone(), response_sender)
-                    .await
-                {
-                    Ok(_) => {
-                        tracing::info!(
-                            "Pulling model was successful. Setting {model} as current model"
-                        );
-                        self.assistant.set_model(model);
-                    }
-                    Err(error) => {
-                        tracing::error!("Pulling model failed because of: {error}");
-                    }
-                }
+        widgets.container.remove_all();
+        match message {
+            AppMsg::ShowStartUpScreen => {
+                tracing::info!("Showing startup screen");
+                let assistant = self.assistant.clone();
+                let controller = StartupPage::builder().launch(assistant).forward(
+                    sender.input_sender(),
+                    |output| match output {
+                        StartupPageOutputMsg::End => AppMsg::ShowChatScreen,
+                    },
+                );
+                widgets.container.append(controller.widget());
+                self.screen = Some(AppScreen::StartUp(controller));
             }
-            AppMsg::GenerateAnswer(message) => {
-                tracing::info!("Generating assistant answer");
-                let (response_sender, response_receiver) = mpsc::channel();
-                self.chat_page
-                    .sender()
-                    .emit(ChatPageInputMsg::AssistantAnswer(response_receiver));
-                match self
-                    .assistant
-                    .generate_answer(message, response_sender)
-                    .await
-                {
-                    Ok(_) => {
-                        tracing::info!("Successfully generated assistant answer");
-                    }
-                    Err(error) => {
-                        tracing::error!("Failed generating assistant answer because of: {error}");
-                    }
-                }
-            }
-            AppMsg::SetAssistantOptions(options) => {
-                self.assistant.set_parameters(options);
+            AppMsg::ShowChatScreen => {
+                let assistant = self.assistant.clone();
+                let controller = ChatPage::builder().launch(assistant).detach();
+                widgets.container.append(controller.widget());
+                self.screen = Some(AppScreen::Chat(controller));
             }
         }
     }
