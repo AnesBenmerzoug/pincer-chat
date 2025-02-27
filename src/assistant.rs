@@ -126,11 +126,11 @@ impl Assistant {
         Ok(pull_model_stream)
     }
 
-    pub async fn generate_answer(
-        &mut self,
-        message: Message,
-    ) -> Result<impl Stream<Item = Result<Message>>> {
+    pub fn add_message(&mut self, message: Message) {
         self.messages.add_message(message);
+    }
+
+    pub async fn generate_answer(&mut self) -> Result<impl Stream<Item = Result<Message>>> {
         let messages = self.messages.get_messages();
         let response_stream = chat(self.parameters.model.clone().unwrap(), messages).await?;
         let generation_stream = response_stream.map(|chat_response| match chat_response {

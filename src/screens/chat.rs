@@ -252,6 +252,24 @@ impl AsyncComponent for ChatScreen {
                 .set_model(Some(&model_list));
         }
 
+        {
+            // System Message
+            let message = Message {
+                content: String::from("You are a helpful assistant. You reply to user queries in a helpful manner. \
+                You should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. \
+                You help with writing, analysis, question answering, math, coding, and all sorts of other tasks. \
+                You use markdown formatting for your replies."),
+                role: Role::System,
+            };
+            model
+                .message_bubbles
+                .sender()
+                .emit(MessageBubbleContainerInputMsg::AddMessage(message.clone()));
+
+            let mut assistant = model.assistant.lock().await;
+            assistant.add_message(message);
+        }
+
         AsyncComponentParts { model, widgets }
     }
 
@@ -286,6 +304,7 @@ impl AsyncComponent for ChatScreen {
                 sender.command(|out, shutdown: relm4::ShutdownReceiver| {
                     shutdown
                         .register(async move {
+
                             let mut assistant = assistant.lock().await;
                             let mut response_stream = match assistant.pull_model(model.clone()).await {
                                 Ok(stream) => stream,
@@ -328,6 +347,10 @@ impl AsyncComponent for ChatScreen {
                 self.message_bubbles
                     .sender()
                     .emit(MessageBubbleContainerInputMsg::AddMessage(message.clone()));
+                {
+                    let mut assistant = self.assistant.lock().await;
+                    assistant.add_message(message);
+                }
                 sender
                     .input_sender()
                     .emit(ChatScreenInputMsg::AssistantAnswer);
@@ -346,8 +369,7 @@ impl AsyncComponent for ChatScreen {
                     shutdown
                         .register(async move {
                             let mut assistant = assistant.lock().await;
-                            let mut message_stream = match assistant.generate_answer(message).await
-                            {
+                            let mut message_stream = match assistant.generate_answer().await {
                                 Ok(stream) => stream,
                                 Err(error) => {
                                     tracing::error!(
