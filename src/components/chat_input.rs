@@ -54,6 +54,7 @@ impl Component for ChatInputComponent {
                 set_placeholder_text: if model.enabled == true { Some("Write a message") } else { Some("Loading ...") },
                 set_hexpand: true,
                 set_halign: gtk::Align::Fill,
+                set_css_classes: &["user_input"],
 
                 connect_activate => ChatInputInputMsg::Submit,
             },
@@ -62,7 +63,7 @@ impl Component for ChatInputComponent {
             gtk::Button {
                 set_tooltip_text: Some("Submit message"),
                 set_icon_name: "document-send-symbolic",
-                set_css_classes: &["submit_button"],
+                set_css_classes: &["button", "submit_message_button"],
 
                 connect_clicked => ChatInputInputMsg::Disable,
             },

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use gtk::prelude::*;
-use relm4::prelude::*;
+use relm4::{gtk::subclass::adjustment, prelude::*};
 
 use crate::assistant::ollama::types::{Message, Role};
 
@@ -28,6 +28,7 @@ impl Component for MessageBubbleContainerComponent {
             set_vexpand: true,
             set_valign: gtk::Align::Fill,
 
+            #[name = "scrolled_window"]
             gtk::ScrolledWindow {
                 set_hscrollbar_policy: gtk::PolicyType::Never,
                 set_hexpand: true,
@@ -60,11 +61,20 @@ impl Component for MessageBubbleContainerComponent {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, _: ComponentSender<Self>, _: &Self::Root) {
+    fn update_with_view(
+        &mut self,
+        widgets: &mut Self::Widgets,
+        message: Self::Input,
+        _: ComponentSender<Self>,
+        _: &Self::Root,
+    ) {
         match message {
             MessageBubbleContainerInputMsg::AddMessage(message) => {
                 let mut guard = self.message_bubbles.guard();
                 guard.push_back(message);
+                let adjustment = widgets.scrolled_window.vadjustment();
+                adjustment.set_value(adjustment.upper());
+                widgets.scrolled_window.set_vadjustment(Some(&adjustment));
             }
             MessageBubbleContainerInputMsg::AppendToLastMessage(message) => {
                 let mut guard = self.message_bubbles.guard();
@@ -73,6 +83,10 @@ impl Component for MessageBubbleContainerComponent {
                     .expect("There should be at least one previous message")
                     .append_to_message(message)
                     .expect("Replacing message should work");
+
+                let adjustment = widgets.scrolled_window.vadjustment();
+                adjustment.set_value(adjustment.upper());
+                widgets.scrolled_window.set_vadjustment(Some(&adjustment));
             }
         }
     }
@@ -134,6 +148,7 @@ impl FactoryComponent for MessageBubbleComponent {
                 set_editable: false,
                 set_justification: gtk::Justification::Left,
                 set_wrap_mode: gtk::WrapMode::Word,
+                set_css_classes: &["message_bubble"],
                 add_css_class: match self.role {
                     Role::System => "system_message",
                     Role::User => "user_message",

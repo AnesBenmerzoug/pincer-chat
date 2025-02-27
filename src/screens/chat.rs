@@ -105,6 +105,8 @@ impl AsyncComponent for ChatScreen {
                     gtk::DropDown {
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
+                        set_css_classes: &["dropdown", "model_dropdown"],
+
                         connect_selected_notify[sender] => move |model_drop_down| {
                             sender.input(ChatScreenInputMsg::SelectModel(
                                 model_drop_down
@@ -114,78 +116,80 @@ impl AsyncComponent for ChatScreen {
                                 .expect("Conversion of gtk StringObject to String should work")
                                 .into()))
                         },
-                    }
-                },
+                    },
 
-                gtk::MenuButton {
-                    set_icon_name: "preferences-system-symbolic",
-                    set_direction: gtk::ArrowType::Down,
+                    gtk::MenuButton {
+                        set_icon_name: "preferences-system-symbolic",
+                        set_direction: gtk::ArrowType::Down,
+                        set_css_classes: &["button", "options_menu_button"],
 
-                    #[wrap(Some)]
-                    set_popover: popover = &gtk::Popover {
-                        set_position: gtk::PositionType::Bottom,
+                        #[wrap(Some)]
+                        set_popover: popover = &gtk::Popover {
+                            set_position: gtk::PositionType::Bottom,
 
-                        gtk::Box {
-                            set_orientation: gtk::Orientation::Vertical,
-                            set_spacing: 5,
+                            gtk::Box {
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_spacing: 5,
 
-                            // Temperature
-                            #[template]
-                            ParameterSpinButton {
-                                gtk::Label {
-                                    set_label: "Temperature",
-                                },
-                                gtk::SpinButton::with_range(0.0, 1.0, 0.1) {
-                                    #[watch]
-                                    set_value: model.options.temperature,
+                                // Temperature
+                                #[template]
+                                ParameterSpinButton {
+                                    gtk::Label {
+                                        set_label: "Temperature",
+                                    },
+                                    gtk::SpinButton::with_range(0.0, 1.0, 0.1) {
+                                        #[watch]
+                                        set_value: model.options.temperature,
 
-                                    connect_value_changed[sender] => move |btn| {
-                                        let value = btn.value();
-                                        sender.input(ChatScreenInputMsg::Temperature(value));
+                                        connect_value_changed[sender] => move |btn| {
+                                            let value = btn.value();
+                                            sender.input(ChatScreenInputMsg::Temperature(value));
+                                        },
                                     },
                                 },
-                            },
 
-                            // Top-K
-                            #[template]
-                            ParameterSpinButton {
-                                gtk::Label {
-                                    set_label: "Top-K",
-                                },
-                                gtk::SpinButton::with_range(0.0, 100.0, 1.0) {
-                                    #[watch]
-                                    set_value: model.options.top_k as f64,
+                                // Top-K
+                                #[template]
+                                ParameterSpinButton {
+                                    gtk::Label {
+                                        set_label: "Top-K",
+                                    },
+                                    gtk::SpinButton::with_range(0.0, 100.0, 1.0) {
+                                        #[watch]
+                                        set_value: model.options.top_k as f64,
 
-                                    connect_value_changed[sender] => move |btn| {
-                                        let value = btn.value() as u64;
-                                        sender.input(ChatScreenInputMsg::TopK(value));
+                                        connect_value_changed[sender] => move |btn| {
+                                            let value = btn.value() as u64;
+                                            sender.input(ChatScreenInputMsg::TopK(value));
+                                        },
                                     },
                                 },
-                            },
-                            // Top-P
-                            #[template]
-                            ParameterSpinButton {
-                                gtk::Label {
-                                    set_label: "Top-P",
-                                },
-                                gtk::SpinButton::with_range(0.0, 1.0, 0.1) {
-                                    #[watch]
-                                    set_value: model.options.top_p,
+                                
+                                // Top-P
+                                #[template]
+                                ParameterSpinButton {
+                                    gtk::Label {
+                                        set_label: "Top-P",
+                                    },
+                                    gtk::SpinButton::with_range(0.0, 1.0, 0.1) {
+                                        #[watch]
+                                        set_value: model.options.top_p,
 
-                                    connect_value_changed[sender] => move |btn| {
-                                        let value = btn.value();
-                                        sender.input(ChatScreenInputMsg::TopP(value));
+                                        connect_value_changed[sender] => move |btn| {
+                                            let value = btn.value();
+                                            sender.input(ChatScreenInputMsg::TopP(value));
+                                        },
                                     },
                                 },
-            },
 
-                            gtk::Button {
-                                set_hexpand: true,
-                                set_halign: gtk::Align::Fill,
-                                set_icon_name: "edit-undo-symbolic",
-                                set_tooltip_text: Some("Restore default options"),
-                                set_css_classes: &["reset_button"],
-                                connect_clicked => ChatScreenInputMsg::ResetParameters,
+                                gtk::Button {
+                                    set_hexpand: true,
+                                    set_halign: gtk::Align::Fill,
+                                    set_icon_name: "edit-undo-symbolic",
+                                    set_tooltip_text: Some("Restore default options"),
+                                    set_css_classes: &["button", "reset_options_button"],
+                                    connect_clicked => ChatScreenInputMsg::ResetParameters,
+                                },
                             },
                         },
                     },
@@ -304,7 +308,6 @@ impl AsyncComponent for ChatScreen {
                 sender.command(|out, shutdown: relm4::ShutdownReceiver| {
                     shutdown
                         .register(async move {
-
                             let mut assistant = assistant.lock().await;
                             let mut response_stream = match assistant.pull_model(model.clone()).await {
                                 Ok(stream) => stream,
