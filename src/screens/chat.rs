@@ -4,14 +4,10 @@ use relm4::component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender
 use relm4::prelude::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::time::Duration;
 use tracing;
 
 use crate::assistant::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
 use crate::assistant::{Assistant, AssistantParameters};
-use crate::components::assistant_options_dialog::{
-    AssistantOptionsDialog, AssistantOptionsDialogInputMsg, AssistantOptionsDialogOutputMsg,
-};
 use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
@@ -20,19 +16,39 @@ use crate::components::message_bubble::{
 #[derive(Debug)]
 pub struct ChatPage {
     assistant: Arc<Mutex<Assistant>>,
+    options: AssistantOptions,
     // Components
     message_bubbles: Controller<MessageBubbleContainerComponent>,
     chat_input: Controller<ChatInputComponent>,
-    options_dialog: Controller<AssistantOptionsDialog>,
+}
+
+#[derive(Debug)]
+pub struct AssistantOptions {
+    pub temperature: f64,
+    pub top_k: u64,
+    pub top_p: f64,
+}
+
+impl Default for AssistantOptions {
+    fn default() -> Self {
+        Self {
+            temperature: 0.5,
+            top_k: 40,
+            top_p: 0.9,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum ChatPageInputMsg {
-    ShowOptionsDialog,
-    SetAssistantOptions(AssistantParameters),
     SelectModel(String),
     SubmitUserInput(String),
     AssistantAnswer,
+    // Assistant Parameters
+    Temperature(f64),
+    TopK(u64),
+    TopP(f64),
+    ResetParameters,
 }
 
 #[derive(Debug)]
@@ -42,14 +58,24 @@ pub enum ChatPageCmdMsg {
     AppendToMessage(Message),
 }
 
-#[derive(Debug)]
-pub enum ChatPageOutputMsg {}
+#[relm4::widget_template(pub)]
+impl WidgetTemplate for ParameterSpinButton {
+    view! {
+        gtk::Box {
+            set_orientation: gtk::Orientation::Horizontal,
+            set_margin_all: 5,
+            set_spacing: 5,
+            set_halign: gtk::Align::End,
+            set_valign: gtk::Align::Start,
+        }
+    }
+}
 
 #[relm4::component(async, pub)]
 impl AsyncComponent for ChatPage {
     type Init = Arc<Mutex<Assistant>>;
     type Input = ChatPageInputMsg;
-    type Output = ChatPageOutputMsg;
+    type Output = ();
     type CommandOutput = ChatPageCmdMsg;
 
     view! {
@@ -91,12 +117,78 @@ impl AsyncComponent for ChatPage {
                     }
                 },
 
-                #[name = "option_menu_button"]
-                gtk::Button {
-                    set_icon_name: "open-menu-symbolic",
+                gtk::MenuButton {
                     set_icon_name: "preferences-system-symbolic",
-                    set_css_classes: &["option_menu_button"],
-                    connect_clicked => ChatPageInputMsg::ShowOptionsDialog,
+                    set_direction: gtk::ArrowType::Down,
+
+                    #[wrap(Some)]
+                    set_popover: popover = &gtk::Popover {
+                        set_position: gtk::PositionType::Bottom,
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 5,
+
+                            // Temperature
+                            #[template]
+                            ParameterSpinButton {
+                                gtk::Label {
+                                    set_label: "Temperature",
+                                },
+                                gtk::SpinButton::with_range(0.0, 1.0, 0.1) {
+                                    #[watch]
+                                    set_value: model.options.temperature,
+
+                                    connect_value_changed[sender] => move |btn| {
+                                        let value = btn.value();
+                                        sender.input(ChatPageInputMsg::Temperature(value));
+                                    },
+                                },
+                            },
+
+                            // Top-K
+                            #[template]
+                            ParameterSpinButton {
+                                gtk::Label {
+                                    set_label: "Top-K",
+                                },
+                                gtk::SpinButton::with_range(0.0, 100.0, 1.0) {
+                                    #[watch]
+                                    set_value: model.options.top_k as f64,
+
+                                    connect_value_changed[sender] => move |btn| {
+                                        let value = btn.value() as u64;
+                                        sender.input(ChatPageInputMsg::TopK(value));
+                                    },
+                                },
+                            },
+                            // Top-P
+                            #[template]
+                            ParameterSpinButton {
+                                gtk::Label {
+                                    set_label: "Top-P",
+                                },
+                                gtk::SpinButton::with_range(0.0, 1.0, 0.1) {
+                                    #[watch]
+                                    set_value: model.options.top_p,
+
+                                    connect_value_changed[sender] => move |btn| {
+                                        let value = btn.value();
+                                        sender.input(ChatPageInputMsg::TopP(value));
+                                    },
+                                },
+            },
+
+                            gtk::Button {
+                                set_hexpand: true,
+                                set_halign: gtk::Align::Fill,
+                                set_icon_name: "edit-undo-symbolic",
+                                set_tooltip_text: Some("Restore default options"),
+                                set_css_classes: &["reset_button"],
+                                connect_clicked => ChatPageInputMsg::ResetParameters,
+                            },
+                        },
+                    },
                 },
             },
 
@@ -115,15 +207,6 @@ impl AsyncComponent for ChatPage {
         root: Self::Root,
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
-        let options_dialog = AssistantOptionsDialog::builder()
-            .transient_for(&root)
-            .launch(())
-            .forward(sender.input_sender(), |output| match output {
-                AssistantOptionsDialogOutputMsg::SendOptions(options) => {
-                    ChatPageInputMsg::SetAssistantOptions(options)
-                }
-            });
-
         let message_bubbles = MessageBubbleContainerComponent::builder()
             .launch(())
             .detach();
@@ -139,9 +222,9 @@ impl AsyncComponent for ChatPage {
 
         let model = ChatPage {
             assistant: init,
+            options: AssistantOptions::default(),
             message_bubbles,
             chat_input,
-            options_dialog,
         };
 
         // References used in the view macro
@@ -179,14 +262,23 @@ impl AsyncComponent for ChatPage {
         _: &Self::Root,
     ) {
         match message {
-            ChatPageInputMsg::ShowOptionsDialog => {
-                self.options_dialog
-                    .sender()
-                    .emit(AssistantOptionsDialogInputMsg::Show);
+            ChatPageInputMsg::Temperature(value) => {
+                self.assistant.lock().await.set_temperature(value.clone());
+                self.options.temperature = value;
             }
-            ChatPageInputMsg::SetAssistantOptions(options) => {
-                self.chat_input.sender().emit(ChatInputInputMsg::Disable);
-                self.assistant.lock().await.set_parameters(options);
+            ChatPageInputMsg::TopK(value) => {
+                self.assistant.lock().await.set_top_k(value.clone());
+                self.options.top_k = value;
+            }
+            ChatPageInputMsg::TopP(value) => {
+                self.assistant.lock().await.set_top_p(value.clone());
+                self.options.top_p = value;
+            }
+            ChatPageInputMsg::ResetParameters => {
+                tracing::info!("Resetting assistant parameters");
+                let mut assistant = self.assistant.lock().await;
+                assistant.reset_parameters();
+                self.options = AssistantOptions::default();
             }
             ChatPageInputMsg::SelectModel(model) => {
                 tracing::info!("Pulling model {model}");

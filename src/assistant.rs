@@ -1,13 +1,12 @@
 pub mod ollama;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use futures::Stream;
 use futures::StreamExt;
-use std::sync::mpsc;
 
 use self::ollama::{
     api::{chat, list_models, pull_model, version},
-    types::{ChatResponse, Message, PullModelResponse},
+    types::{Message, PullModelResponse},
 };
 
 #[derive(Debug, Default)]
@@ -65,8 +64,31 @@ impl Assistant {
         self.parameters.model = Some(model);
     }
 
+    pub fn set_temperature(&mut self, value: f64) {
+        self.parameters.temperature = value;
+    }
+
+    pub fn set_top_k(&mut self, value: u64) {
+        self.parameters.top_k = value;
+    }
+
+    pub fn set_top_p(&mut self, value: f64) {
+        self.parameters.top_p = value;
+    }
+
+    pub fn reset_parameters(&mut self) {
+        self.parameters = AssistantParameters {
+            model: self.parameters.model.clone(),
+            ..AssistantParameters::default()
+        }
+    }
+
     pub fn set_parameters(&mut self, parameters: AssistantParameters) {
         self.parameters = parameters;
+    }
+
+    pub fn get_parameters(&self) -> AssistantParameters {
+        self.parameters.clone()
     }
 
     pub async fn is_ollama_running(&self) -> bool {

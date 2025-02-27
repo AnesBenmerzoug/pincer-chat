@@ -12,7 +12,7 @@ use tracing;
 
 use crate::assistant::{ollama::types::Message, Assistant, AssistantParameters};
 use crate::screens::{
-    chat::{ChatPage, ChatPageInputMsg, ChatPageOutputMsg},
+    chat::ChatPage,
     startup::{StartupPage, StartupPageOutputMsg},
 };
 
@@ -71,37 +71,6 @@ impl AsyncComponent for App {
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         let assistant = Assistant::new();
-        /*
-        let models = match assistant.list_models().await {
-            Ok(models) => models,
-            Err(err) => {
-                tracing::error!("Could not retrieve list of local models because of: {err}");
-                panic!("Could not retrieve list of local models");
-            }
-        };
-
-        let mut model = String::from("llama3.2:1b");
-        if models.len() == 0 {
-            tracing::info!("No local model found. Using {model} as default model");
-        } else {
-            tracing::info!(
-                "Found {} local models. Using {} as default model",
-                models.len(),
-                models[0]
-            );
-            model = models[0].clone();
-        }
-
-        assistant.set_model(model.clone());
-        {
-            tracing::info!("Pulling {model}");
-            let (response_sender, _) = mpsc::channel();
-            match assistant.pull_model(model, response_sender).await {
-                Ok(_) => {}
-                Err(_) => {}
-            }
-        }
-        */
 
         let mut model = App {
             assistant: Arc::new(Mutex::new(assistant)),
