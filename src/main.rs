@@ -12,8 +12,8 @@ use tracing;
 
 use crate::assistant::{ollama::types::Message, Assistant, AssistantParameters};
 use crate::screens::{
-    chat::ChatPage,
-    startup::{StartupPage, StartupPageOutputMsg},
+    chat::ChatScreen,
+    startup::{StartupScreen, StartupScreenOutputMsg},
 };
 
 const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
@@ -26,8 +26,8 @@ struct App {
 
 #[derive(Debug)]
 enum AppScreen {
-    StartUp(AsyncController<StartupPage>),
-    Chat(AsyncController<ChatPage>),
+    StartUp(AsyncController<StartupScreen>),
+    Chat(AsyncController<ChatScreen>),
 }
 
 #[derive(Debug)]
@@ -98,10 +98,10 @@ impl AsyncComponent for App {
             AppMsg::ShowStartUpScreen => {
                 tracing::info!("Showing startup screen");
                 let assistant = self.assistant.clone();
-                let controller = StartupPage::builder().launch(assistant).forward(
+                let controller = StartupScreen::builder().launch(assistant).forward(
                     sender.input_sender(),
                     |output| match output {
-                        StartupPageOutputMsg::End => AppMsg::ShowChatScreen,
+                        StartupScreenOutputMsg::End => AppMsg::ShowChatScreen,
                     },
                 );
                 widgets.container.append(controller.widget());
@@ -109,7 +109,7 @@ impl AsyncComponent for App {
             }
             AppMsg::ShowChatScreen => {
                 let assistant = self.assistant.clone();
-                let controller = ChatPage::builder().launch(assistant).detach();
+                let controller = ChatScreen::builder().launch(assistant).detach();
                 widgets.container.append(controller.widget());
                 self.screen = Some(AppScreen::Chat(controller));
             }

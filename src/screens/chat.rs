@@ -14,7 +14,7 @@ use crate::components::message_bubble::{
 };
 
 #[derive(Debug)]
-pub struct ChatPage {
+pub struct ChatScreen {
     assistant: Arc<Mutex<Assistant>>,
     options: AssistantOptions,
     // Components
@@ -40,7 +40,7 @@ impl Default for AssistantOptions {
 }
 
 #[derive(Debug)]
-pub enum ChatPageInputMsg {
+pub enum ChatScreenInputMsg {
     SelectModel(String),
     SubmitUserInput(String),
     AssistantAnswer,
@@ -52,7 +52,7 @@ pub enum ChatPageInputMsg {
 }
 
 #[derive(Debug)]
-pub enum ChatPageCmdMsg {
+pub enum ChatScreenCmdMsg {
     PullModelEnd,
     AnswerEnd,
     AppendToMessage(Message),
@@ -72,11 +72,11 @@ impl WidgetTemplate for ParameterSpinButton {
 }
 
 #[relm4::component(async, pub)]
-impl AsyncComponent for ChatPage {
+impl AsyncComponent for ChatScreen {
     type Init = Arc<Mutex<Assistant>>;
-    type Input = ChatPageInputMsg;
+    type Input = ChatScreenInputMsg;
     type Output = ();
-    type CommandOutput = ChatPageCmdMsg;
+    type CommandOutput = ChatScreenCmdMsg;
 
     view! {
         gtk::Box {
@@ -106,7 +106,7 @@ impl AsyncComponent for ChatPage {
                         set_hexpand: true,
                         set_halign: gtk::Align::Fill,
                         connect_selected_notify[sender] => move |model_drop_down| {
-                            sender.input(ChatPageInputMsg::SelectModel(
+                            sender.input(ChatScreenInputMsg::SelectModel(
                                 model_drop_down
                                 .selected_item()
                                 .expect("Getting selected item from dropdown should work")
@@ -141,7 +141,7 @@ impl AsyncComponent for ChatPage {
 
                                     connect_value_changed[sender] => move |btn| {
                                         let value = btn.value();
-                                        sender.input(ChatPageInputMsg::Temperature(value));
+                                        sender.input(ChatScreenInputMsg::Temperature(value));
                                     },
                                 },
                             },
@@ -158,7 +158,7 @@ impl AsyncComponent for ChatPage {
 
                                     connect_value_changed[sender] => move |btn| {
                                         let value = btn.value() as u64;
-                                        sender.input(ChatPageInputMsg::TopK(value));
+                                        sender.input(ChatScreenInputMsg::TopK(value));
                                     },
                                 },
                             },
@@ -174,7 +174,7 @@ impl AsyncComponent for ChatPage {
 
                                     connect_value_changed[sender] => move |btn| {
                                         let value = btn.value();
-                                        sender.input(ChatPageInputMsg::TopP(value));
+                                        sender.input(ChatScreenInputMsg::TopP(value));
                                     },
                                 },
             },
@@ -185,7 +185,7 @@ impl AsyncComponent for ChatPage {
                                 set_icon_name: "edit-undo-symbolic",
                                 set_tooltip_text: Some("Restore default options"),
                                 set_css_classes: &["reset_button"],
-                                connect_clicked => ChatPageInputMsg::ResetParameters,
+                                connect_clicked => ChatScreenInputMsg::ResetParameters,
                             },
                         },
                     },
@@ -216,11 +216,11 @@ impl AsyncComponent for ChatPage {
                 .launch(())
                 .forward(sender.input_sender(), |output| match output {
                     ChatInputOutputMsg::SubmitUserInput(message) => {
-                        ChatPageInputMsg::SubmitUserInput(message)
+                        ChatScreenInputMsg::SubmitUserInput(message)
                     }
                 });
 
-        let model = ChatPage {
+        let model = ChatScreen {
             assistant: init,
             options: AssistantOptions::default(),
             message_bubbles,
@@ -262,25 +262,25 @@ impl AsyncComponent for ChatPage {
         _: &Self::Root,
     ) {
         match message {
-            ChatPageInputMsg::Temperature(value) => {
+            ChatScreenInputMsg::Temperature(value) => {
                 self.assistant.lock().await.set_temperature(value.clone());
                 self.options.temperature = value;
             }
-            ChatPageInputMsg::TopK(value) => {
+            ChatScreenInputMsg::TopK(value) => {
                 self.assistant.lock().await.set_top_k(value.clone());
                 self.options.top_k = value;
             }
-            ChatPageInputMsg::TopP(value) => {
+            ChatScreenInputMsg::TopP(value) => {
                 self.assistant.lock().await.set_top_p(value.clone());
                 self.options.top_p = value;
             }
-            ChatPageInputMsg::ResetParameters => {
+            ChatScreenInputMsg::ResetParameters => {
                 tracing::info!("Resetting assistant parameters");
                 let mut assistant = self.assistant.lock().await;
                 assistant.reset_parameters();
                 self.options = AssistantOptions::default();
             }
-            ChatPageInputMsg::SelectModel(model) => {
+            ChatScreenInputMsg::SelectModel(model) => {
                 tracing::info!("Pulling model {model}");
                 let assistant = self.assistant.clone();
                 sender.command(|out, shutdown: relm4::ShutdownReceiver| {
@@ -311,7 +311,7 @@ impl AsyncComponent for ChatPage {
                                 }
                             }
                             assistant.set_model(model);
-                            out.emit(ChatPageCmdMsg::PullModelEnd);
+                            out.emit(ChatScreenCmdMsg::PullModelEnd);
                         })
                         // Perform task until a shutdown interrupts it
                         .drop_on_shutdown()
@@ -319,7 +319,7 @@ impl AsyncComponent for ChatPage {
                         .boxed()
                 })
             }
-            ChatPageInputMsg::SubmitUserInput(user_input) => {
+            ChatScreenInputMsg::SubmitUserInput(user_input) => {
                 tracing::info!("Submitting user input");
                 let message = Message {
                     content: user_input,
@@ -330,9 +330,9 @@ impl AsyncComponent for ChatPage {
                     .emit(MessageBubbleContainerInputMsg::AddMessage(message.clone()));
                 sender
                     .input_sender()
-                    .emit(ChatPageInputMsg::AssistantAnswer);
+                    .emit(ChatScreenInputMsg::AssistantAnswer);
             }
-            ChatPageInputMsg::AssistantAnswer => {
+            ChatScreenInputMsg::AssistantAnswer => {
                 let message = Message {
                     content: String::new(),
                     role: Role::Assistant,
@@ -361,7 +361,7 @@ impl AsyncComponent for ChatPage {
                                 match result {
                                     Ok(message) => {
                                         tracing::info!("Received assistant answer: {:?}", message);
-                                        out.emit(ChatPageCmdMsg::AppendToMessage(message));
+                                        out.emit(ChatScreenCmdMsg::AppendToMessage(message));
                                     }
                                     Err(error) => {
                                         tracing::error!(
@@ -371,7 +371,7 @@ impl AsyncComponent for ChatPage {
                                     }
                                 }
                             }
-                            out.emit(ChatPageCmdMsg::AnswerEnd);
+                            out.emit(ChatScreenCmdMsg::AnswerEnd);
                         })
                         // Perform task until a shutdown interrupts it
                         .drop_on_shutdown()
@@ -389,15 +389,15 @@ impl AsyncComponent for ChatPage {
         _: &Self::Root,
     ) {
         match message {
-            ChatPageCmdMsg::PullModelEnd => {
+            ChatScreenCmdMsg::PullModelEnd => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Enable);
             }
-            ChatPageCmdMsg::AppendToMessage(message) => {
+            ChatScreenCmdMsg::AppendToMessage(message) => {
                 self.message_bubbles
                     .sender()
                     .emit(MessageBubbleContainerInputMsg::AppendToLastMessage(message));
             }
-            ChatPageCmdMsg::AnswerEnd => {
+            ChatScreenCmdMsg::AnswerEnd => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Enable);
             }
         }

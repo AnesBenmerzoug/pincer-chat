@@ -10,13 +10,13 @@ use crate::assistant::ollama::types::{ChatResponse, Message, PullModelResponse, 
 use crate::assistant::{Assistant, AssistantParameters};
 
 #[derive(Debug)]
-pub struct StartupPage {
+pub struct StartupScreen {
     assistant: Arc<Mutex<Assistant>>,
-    state: StartupPageState,
+    state: StartupScreenState,
 }
 
 #[derive(Debug)]
-pub enum StartupPageState {
+pub enum StartupScreenState {
     Start,
     CheckOllama,
     OllamaNotRunning,
@@ -24,7 +24,7 @@ pub enum StartupPageState {
 }
 
 #[derive(Debug)]
-pub enum StartupPageInputMsg {
+pub enum StartupScreenInputMsg {
     Start,
     CheckOllamaIsRunning,
     OllamaNotRunning,
@@ -34,15 +34,15 @@ pub enum StartupPageInputMsg {
 }
 
 #[derive(Debug)]
-pub enum StartupPageOutputMsg {
+pub enum StartupScreenOutputMsg {
     End,
 }
 
 #[relm4::component(async, pub)]
-impl AsyncComponent for StartupPage {
+impl AsyncComponent for StartupScreen {
     type Init = Arc<Mutex<Assistant>>;
-    type Input = StartupPageInputMsg;
-    type Output = StartupPageOutputMsg;
+    type Input = StartupScreenInputMsg;
+    type Output = StartupScreenOutputMsg;
     type CommandOutput = ();
 
     view! {
@@ -79,7 +79,7 @@ impl AsyncComponent for StartupPage {
                     set_icon_name: "edit-undo-symbolic",
                     set_tooltip_text: Some("Retry"),
                     set_css_classes: &["reset_button"],
-                    connect_clicked => StartupPageInputMsg::Retry,
+                    connect_clicked => StartupScreenInputMsg::Retry,
                 }
             },
         },
@@ -90,15 +90,15 @@ impl AsyncComponent for StartupPage {
         root: Self::Root,
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
-        let mut model = StartupPage {
+        let mut model = StartupScreen {
             assistant: init,
-            state: StartupPageState::Start,
+            state: StartupScreenState::Start,
         };
 
         let mut widgets = view_output!();
 
         model
-            .update_with_view(&mut widgets, StartupPageInputMsg::Start, sender, &root)
+            .update_with_view(&mut widgets, StartupScreenInputMsg::Start, sender, &root)
             .await;
 
         AsyncComponentParts { model, widgets }
@@ -113,41 +113,43 @@ impl AsyncComponent for StartupPage {
     ) {
         sleep(Duration::from_millis(100)).await;
         match message {
-            StartupPageInputMsg::Start => {
+            StartupScreenInputMsg::Start => {
                 tracing::info!("Start up screen initialization");
                 sender
                     .input_sender()
-                    .emit(StartupPageInputMsg::CheckOllamaIsRunning);
+                    .emit(StartupScreenInputMsg::CheckOllamaIsRunning);
             }
-            StartupPageInputMsg::CheckOllamaIsRunning => {
+            StartupScreenInputMsg::CheckOllamaIsRunning => {
                 tracing::info!("Checking if Ollama is running");
-                self.state = StartupPageState::CheckOllama;
+                self.state = StartupScreenState::CheckOllama;
                 match self.assistant.lock().await.is_ollama_running().await {
                     true => {
                         tracing::info!("Ollama is running. Continuing");
-                        sender.input_sender().emit(StartupPageInputMsg::ListModels);
+                        sender
+                            .input_sender()
+                            .emit(StartupScreenInputMsg::ListModels);
                     }
                     false => {
                         tracing::error!("Ollama is not running. Stopping");
                         sender
                             .input_sender()
-                            .emit(StartupPageInputMsg::OllamaNotRunning);
+                            .emit(StartupScreenInputMsg::OllamaNotRunning);
                     }
                 }
             }
-            StartupPageInputMsg::OllamaNotRunning => {
+            StartupScreenInputMsg::OllamaNotRunning => {
                 tracing::error!("Ollama is not running. Waiting for user input");
-                self.state = StartupPageState::OllamaNotRunning;
+                self.state = StartupScreenState::OllamaNotRunning;
             }
-            StartupPageInputMsg::Retry => {
+            StartupScreenInputMsg::Retry => {
                 tracing::error!("User clicked retry button");
                 widgets.retry_button.set_visible(false);
                 widgets.spinner.set_spinning(true);
                 sender
                     .input_sender()
-                    .emit(StartupPageInputMsg::CheckOllamaIsRunning);
+                    .emit(StartupScreenInputMsg::CheckOllamaIsRunning);
             }
-            StartupPageInputMsg::ListModels => {
+            StartupScreenInputMsg::ListModels => {
                 tracing::info!("Listing local models");
                 let mut assistant = self.assistant.lock().await;
                 let models = match assistant.list_models().await {
@@ -171,32 +173,32 @@ impl AsyncComponent for StartupPage {
                     model = models[0].clone();
                 }
                 assistant.set_model(model);
-                sender.input_sender().emit(StartupPageInputMsg::End);
+                sender.input_sender().emit(StartupScreenInputMsg::End);
             }
-            StartupPageInputMsg::End => {
+            StartupScreenInputMsg::End => {
                 tracing::info!("Finished application startup");
-                self.state = StartupPageState::End;
-                sender.output_sender().emit(StartupPageOutputMsg::End);
+                self.state = StartupScreenState::End;
+                sender.output_sender().emit(StartupScreenOutputMsg::End);
             }
         }
 
         match self.state {
-            StartupPageState::Start => {
+            StartupScreenState::Start => {
                 widgets.status_label.set_label("Starting up application...");
             }
-            StartupPageState::CheckOllama => {
+            StartupScreenState::CheckOllama => {
                 widgets
                     .status_label
                     .set_label("Checking if Ollama is running...");
             }
-            StartupPageState::OllamaNotRunning => {
+            StartupScreenState::OllamaNotRunning => {
                 widgets
                     .status_label
                     .set_label("Ollama is not running. Please start it and try again");
                 widgets.retry_button.set_visible(true);
                 widgets.spinner.set_spinning(false);
             }
-            StartupPageState::End => {
+            StartupScreenState::End => {
                 widgets.status_label.set_label("Application is ready!");
             }
         }
