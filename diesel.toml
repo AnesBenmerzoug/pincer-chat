@@ -2,7 +2,7 @@
 # see https://diesel.rs/guides/configuring-diesel-cli
 
 [print_schema]
-file = "src/schema.rs"
+file = "src/assistant/database/schema.rs"
 with_docs = true
 sqlite_integer_primary_key_is_bigint = true
 generate_missing_sql_type_definitions = true
