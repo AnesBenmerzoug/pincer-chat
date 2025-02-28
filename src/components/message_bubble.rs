@@ -80,10 +80,8 @@ impl AsyncComponent for MessageBubbleContainerComponent {
                 guard.push_back(message);
 
                 let adjustment = widgets.scrolled_window.vadjustment();
-                if adjustment.value() < adjustment.page_size() {
-                    adjustment.set_value(adjustment.upper() - adjustment.page_size());
-                    widgets.scrolled_window.set_vadjustment(Some(&adjustment));
-                }
+                adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                widgets.scrolled_window.set_vadjustment(Some(&adjustment));
             }
             MessageBubbleContainerInputMsg::AddEmptyAssistantMessage => {
                 let message = Message {
