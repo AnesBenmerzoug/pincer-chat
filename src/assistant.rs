@@ -1,3 +1,4 @@
+pub mod database;
 pub mod ollama;
 
 use anyhow::Result;
