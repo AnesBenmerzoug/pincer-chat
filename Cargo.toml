@@ -10,6 +10,7 @@ diesel = { version = "2.2.7", features = [
     "sqlite",
     "returning_clauses_for_sqlite_3_35",
 ] }
+diesel-async = "0.5.2"
 futures = "0.3.31"
 home = "0.5.11"
 relm4 = "0.9.1"
