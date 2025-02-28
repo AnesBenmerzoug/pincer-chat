@@ -1,23 +1,29 @@
 use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use gtk::prelude::*;
-use relm4::{gtk::subclass::adjustment, prelude::*};
+use relm4::component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender};
+use relm4::factory::{AsyncFactoryComponent, AsyncFactoryVecDeque};
+use relm4::loading_widgets::LoadingWidgets;
+use relm4::prelude::*;
+use relm4::view;
+use std::future::Future;
 
 use crate::assistant::ollama::types::{Message, Role};
 
 #[derive(Debug)]
 pub struct MessageBubbleContainerComponent {
-    message_bubbles: FactoryVecDeque<MessageBubbleComponent>,
+    message_bubbles: AsyncFactoryVecDeque<MessageBubbleComponent>,
 }
 
 #[derive(Debug)]
 pub enum MessageBubbleContainerInputMsg {
-    AddMessage(Message),
+    AddNewMessage(Message),
+    AddEmptyAssistantMessage,
     AppendToLastMessage(Message),
 }
 
-#[relm4::component(pub)]
-impl Component for MessageBubbleContainerComponent {
+#[relm4::component(async, pub)]
+impl AsyncComponent for MessageBubbleContainerComponent {
     type Init = ();
     type Input = MessageBubbleContainerInputMsg;
     type Output = ();
@@ -43,14 +49,14 @@ impl Component for MessageBubbleContainerComponent {
         },
     }
 
-    fn init(
+    async fn init(
         _: Self::Init,
         root: Self::Root,
-        _sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
+        _sender: AsyncComponentSender<Self>,
+    ) -> AsyncComponentParts<Self> {
         let factory_box = gtk::Box::default();
 
-        let message_bubbles = FactoryVecDeque::builder()
+        let message_bubbles = AsyncFactoryVecDeque::builder()
             .launch(factory_box.clone())
             .detach();
 
@@ -58,23 +64,35 @@ impl Component for MessageBubbleContainerComponent {
 
         let widgets = view_output!();
 
-        ComponentParts { model, widgets }
+        AsyncComponentParts { model, widgets }
     }
 
-    fn update_with_view(
+    async fn update_with_view(
         &mut self,
         widgets: &mut Self::Widgets,
         message: Self::Input,
-        _: ComponentSender<Self>,
+        sender: AsyncComponentSender<Self>,
         _: &Self::Root,
     ) {
         match message {
-            MessageBubbleContainerInputMsg::AddMessage(message) => {
+            MessageBubbleContainerInputMsg::AddNewMessage(message) => {
                 let mut guard = self.message_bubbles.guard();
                 guard.push_back(message);
+
                 let adjustment = widgets.scrolled_window.vadjustment();
-                adjustment.set_value(adjustment.upper());
-                widgets.scrolled_window.set_vadjustment(Some(&adjustment));
+                if adjustment.value() < adjustment.page_size() {
+                    adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                    widgets.scrolled_window.set_vadjustment(Some(&adjustment));
+                }
+            }
+            MessageBubbleContainerInputMsg::AddEmptyAssistantMessage => {
+                let message = Message {
+                    content: String::new(),
+                    role: Role::Assistant,
+                };
+                sender
+                    .input_sender()
+                    .emit(MessageBubbleContainerInputMsg::AddNewMessage(message));
             }
             MessageBubbleContainerInputMsg::AppendToLastMessage(message) => {
                 let mut guard = self.message_bubbles.guard();
@@ -82,10 +100,11 @@ impl Component for MessageBubbleContainerComponent {
                     .back_mut()
                     .expect("There should be at least one previous message")
                     .append_to_message(message)
-                    .expect("Replacing message should work");
+                    .await
+                    .expect("Appending to message should work");
 
                 let adjustment = widgets.scrolled_window.vadjustment();
-                adjustment.set_value(adjustment.upper());
+                adjustment.set_value(adjustment.upper() - adjustment.page_size());
                 widgets.scrolled_window.set_vadjustment(Some(&adjustment));
             }
         }
@@ -100,7 +119,7 @@ pub struct MessageBubbleComponent {
 }
 
 impl MessageBubbleComponent {
-    pub fn new(message: Message) -> Self {
+    pub async fn new(message: Message) -> Self {
         let buffer = gtk::TextBuffer::builder().text(&*message.content).build();
         let timestamp = Local::now().format("%d %B %Y at %R").to_string();
         let role = message.role;
@@ -111,7 +130,7 @@ impl MessageBubbleComponent {
         }
     }
 
-    pub fn append_to_message(&mut self, other: Message) -> Result<()> {
+    pub async fn append_to_message(&mut self, other: Message) -> Result<()> {
         if self.role != other.role {
             return Err(anyhow!("the two message roles should be the same"));
         }
@@ -120,8 +139,8 @@ impl MessageBubbleComponent {
     }
 }
 
-#[relm4::factory(pub)]
-impl FactoryComponent for MessageBubbleComponent {
+#[relm4::factory(async, pub)]
+impl AsyncFactoryComponent for MessageBubbleComponent {
     type Init = Message;
     type Input = ();
     type Output = ();
@@ -142,12 +161,13 @@ impl FactoryComponent for MessageBubbleComponent {
             gtk::TextView {
                 set_height_request: 40,
 
-                #[watch]
+                //#[watch]
                 set_buffer: Some(&self.buffer),
                 set_focusable: false,
                 set_editable: false,
+                set_overwrite: true,
                 set_justification: gtk::Justification::Left,
-                set_wrap_mode: gtk::WrapMode::Word,
+                set_wrap_mode: gtk::WrapMode::WordChar,
                 set_css_classes: &["message_bubble"],
                 add_css_class: match self.role {
                     Role::System => "system_message",
@@ -159,7 +179,32 @@ impl FactoryComponent for MessageBubbleComponent {
         }
     }
 
-    fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+    fn init_loading_widgets(root: Self::Root) -> Option<LoadingWidgets> {
+        view! {
+            #[local]
+            root {
+                #[name = "placeholder"]
+                gtk::Box{
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_margin_all: 5,
+                    set_spacing: 5,
+                    set_halign: gtk::Align::Fill,
+                    set_valign: gtk::Align::Fill,
+
+                    gtk::Spinner {
+                        set_spinning: true,
+                    }
+                }
+            }
+        }
+        Some(LoadingWidgets::new(root, placeholder))
+    }
+
+    fn init_model(
+        init: Self::Init,
+        _: &DynamicIndex,
+        _: AsyncFactorySender<Self>,
+    ) -> impl Future<Output = Self> {
         Self::new(init)
     }
 }

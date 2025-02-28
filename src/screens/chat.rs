@@ -18,7 +18,7 @@ pub struct ChatScreen {
     assistant: Arc<Mutex<Assistant>>,
     options: AssistantOptions,
     // Components
-    message_bubbles: Controller<MessageBubbleContainerComponent>,
+    message_bubbles: AsyncController<MessageBubbleContainerComponent>,
     chat_input: Controller<ChatInputComponent>,
 }
 
@@ -164,7 +164,7 @@ impl AsyncComponent for ChatScreen {
                                         },
                                     },
                                 },
-                                
+
                                 // Top-P
                                 #[template]
                                 ParameterSpinButton {
@@ -258,8 +258,8 @@ impl AsyncComponent for ChatScreen {
 
         {
             // System Message
-            let message = Message {
-                content: String::from("You are a helpful assistant. You reply to user queries in a helpful manner. \
+            let system_message = Message {
+                content: String::from("You are a helpful assistant. You reply to user queries in a helpful manner.\n \
                 You should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. \
                 You help with writing, analysis, question answering, math, coding, and all sorts of other tasks. \
                 You use markdown formatting for your replies."),
@@ -268,10 +268,12 @@ impl AsyncComponent for ChatScreen {
             model
                 .message_bubbles
                 .sender()
-                .emit(MessageBubbleContainerInputMsg::AddMessage(message.clone()));
+                .emit(MessageBubbleContainerInputMsg::AddNewMessage(
+                    system_message.clone(),
+                ));
 
             let mut assistant = model.assistant.lock().await;
-            assistant.add_message(message);
+            assistant.add_message(system_message);
         }
 
         AsyncComponentParts { model, widgets }
@@ -349,7 +351,9 @@ impl AsyncComponent for ChatScreen {
                 };
                 self.message_bubbles
                     .sender()
-                    .emit(MessageBubbleContainerInputMsg::AddMessage(message.clone()));
+                    .emit(MessageBubbleContainerInputMsg::AddNewMessage(
+                        message.clone(),
+                    ));
                 {
                     let mut assistant = self.assistant.lock().await;
                     assistant.add_message(message);
@@ -359,13 +363,9 @@ impl AsyncComponent for ChatScreen {
                     .emit(ChatScreenInputMsg::AssistantAnswer);
             }
             ChatScreenInputMsg::AssistantAnswer => {
-                let message = Message {
-                    content: String::new(),
-                    role: Role::Assistant,
-                };
                 self.message_bubbles
                     .sender()
-                    .emit(MessageBubbleContainerInputMsg::AddMessage(message.clone()));
+                    .emit(MessageBubbleContainerInputMsg::AddEmptyAssistantMessage);
 
                 let assistant = self.assistant.clone();
                 sender.command(|out, shutdown: relm4::ShutdownReceiver| {
@@ -381,6 +381,8 @@ impl AsyncComponent for ChatScreen {
                                     return;
                                 }
                             };
+
+                            
 
                             while let Some(result) = message_stream.next().await {
                                 match result {
