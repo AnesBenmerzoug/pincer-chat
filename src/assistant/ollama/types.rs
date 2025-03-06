@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::assistant::database::models::Message as DatabaseMessage;
+
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Role {
     #[serde(alias = "system")]
@@ -13,10 +15,33 @@ pub enum Role {
     Tool,
 }
 
+impl TryFrom<String> for Role {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match &*value {
+            "user" => Ok(Role::User),
+            "assistant" => Ok(Role::Assistant),
+            "system" => Ok(Role::System),
+            "tool" => Ok(Role::Tool),
+            _ => Err(format!("Could not convert string {value} to Role enum")),
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     pub content: String,
+}
+
+impl From<DatabaseMessage> for Message {
+    fn from(value: DatabaseMessage) -> Self {
+        Self {
+            content: value.content,
+            role: Role::try_from(value.role).expect("Message role to be valid"),
+        }
+    }
 }
 
 // Ollama Structs

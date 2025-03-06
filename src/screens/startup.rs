@@ -7,11 +7,12 @@ use tokio::time::{sleep, Duration};
 use tracing;
 
 use crate::assistant::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
-use crate::assistant::{Assistant, AssistantParameters};
+use crate::assistant::{database::Database, Assistant, AssistantParameters};
 
 #[derive(Debug)]
 pub struct StartupScreen {
     assistant: Arc<Mutex<Assistant>>,
+    chat_history: Arc<Mutex<Database>>,
     state: StartupScreenState,
 }
 
@@ -20,6 +21,10 @@ pub enum StartupScreenState {
     Start,
     CheckOllama,
     OllamaNotRunning,
+    ListModels,
+    CheckingDatabase,
+    DatabaseUnreachable,
+    RunningMigrations,
     End,
 }
 
@@ -30,6 +35,9 @@ pub enum StartupScreenInputMsg {
     OllamaNotRunning,
     Retry,
     ListModels,
+    CheckDatabase,
+    DatabaseUnreachable,
+    RunMigrations,
     End,
 }
 
@@ -40,7 +48,7 @@ pub enum StartupScreenOutputMsg {
 
 #[relm4::component(async, pub)]
 impl AsyncComponent for StartupScreen {
-    type Init = Arc<Mutex<Assistant>>;
+    type Init = (Arc<Mutex<Assistant>>, Arc<Mutex<Database>>);
     type Input = StartupScreenInputMsg;
     type Output = StartupScreenOutputMsg;
     type CommandOutput = ();
@@ -91,7 +99,8 @@ impl AsyncComponent for StartupScreen {
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         let mut model = StartupScreen {
-            assistant: init,
+            assistant: init.0,
+            chat_history: init.1,
             state: StartupScreenState::Start,
         };
 
@@ -118,28 +127,29 @@ impl AsyncComponent for StartupScreen {
                 sender
                     .input_sender()
                     .emit(StartupScreenInputMsg::CheckOllamaIsRunning);
+                self.state = StartupScreenState::CheckOllama;
             }
             StartupScreenInputMsg::CheckOllamaIsRunning => {
                 tracing::info!("Checking if Ollama is running");
-                self.state = StartupScreenState::CheckOllama;
                 match self.assistant.lock().await.is_ollama_running().await {
                     true => {
                         tracing::info!("Ollama is running. Continuing");
                         sender
                             .input_sender()
                             .emit(StartupScreenInputMsg::ListModels);
+                        self.state = StartupScreenState::ListModels;
                     }
                     false => {
                         tracing::error!("Ollama is not running. Stopping");
                         sender
                             .input_sender()
                             .emit(StartupScreenInputMsg::OllamaNotRunning);
+                        self.state = StartupScreenState::OllamaNotRunning;
                     }
                 }
             }
             StartupScreenInputMsg::OllamaNotRunning => {
                 tracing::error!("Ollama is not running. Waiting for user input");
-                self.state = StartupScreenState::OllamaNotRunning;
             }
             StartupScreenInputMsg::Retry => {
                 tracing::error!("User clicked retry button");
@@ -148,6 +158,7 @@ impl AsyncComponent for StartupScreen {
                 sender
                     .input_sender()
                     .emit(StartupScreenInputMsg::CheckOllamaIsRunning);
+                self.state = StartupScreenState::CheckOllama;
             }
             StartupScreenInputMsg::ListModels => {
                 tracing::info!("Listing local models");
@@ -173,6 +184,34 @@ impl AsyncComponent for StartupScreen {
                     model = models[0].clone();
                 }
                 assistant.set_model(model);
+                sender
+                    .input_sender()
+                    .emit(StartupScreenInputMsg::CheckDatabase);
+                self.state = StartupScreenState::CheckingDatabase;
+            }
+            StartupScreenInputMsg::CheckDatabase => {
+                tracing::info!("Checking chat history database");
+                let mut chat_history = self.chat_history.lock().await;
+                match chat_history.is_running().await {
+                    true => {
+                        sender
+                            .input_sender()
+                            .emit(StartupScreenInputMsg::RunMigrations);
+                        self.state = StartupScreenState::RunningMigrations;
+                    }
+                    false => {
+                        sender
+                            .input_sender()
+                            .emit(StartupScreenInputMsg::DatabaseUnreachable);
+                        self.state = StartupScreenState::DatabaseUnreachable;
+                    }
+                }
+            }
+            StartupScreenInputMsg::DatabaseUnreachable => {
+                tracing::info!("Database unreachable");
+            }
+            StartupScreenInputMsg::RunMigrations => {
+                tracing::info!("Running database migrations");
                 sender.input_sender().emit(StartupScreenInputMsg::End);
             }
             StartupScreenInputMsg::End => {
@@ -194,9 +233,21 @@ impl AsyncComponent for StartupScreen {
             StartupScreenState::OllamaNotRunning => {
                 widgets
                     .status_label
-                    .set_label("Ollama is not running. Please start it and try again");
+                    .set_label("Ollama is not running :( Please start it and try again ");
                 widgets.retry_button.set_visible(true);
                 widgets.spinner.set_spinning(false);
+            }
+            StartupScreenState::ListModels => {
+                widgets.status_label.set_label("Listing local models...");
+            }
+            StartupScreenState::CheckingDatabase => {
+                widgets.status_label.set_label("Checking database...");
+            }
+            StartupScreenState::DatabaseUnreachable => {
+                widgets.status_label.set_label("Database unreachable :(");
+            }
+            StartupScreenState::RunningMigrations => {
+                widgets.status_label.set_label("Running migrations...");
             }
             StartupScreenState::End => {
                 widgets.status_label.set_label("Application is ready!");

@@ -7,7 +7,10 @@ use tokio::sync::Mutex;
 use tracing;
 
 use crate::assistant::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
-use crate::assistant::{Assistant, AssistantParameters};
+use crate::assistant::{
+    database::{models::Thread, Database},
+    Assistant, AssistantParameters,
+};
 use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
@@ -16,7 +19,9 @@ use crate::components::message_bubble::{
 #[derive(Debug)]
 pub struct ChatScreen {
     assistant: Arc<Mutex<Assistant>>,
+    chat_history: Arc<Mutex<Database>>,
     options: AssistantOptions,
+    current_thread_id: Option<i64>,
     // Components
     message_bubbles: AsyncController<MessageBubbleContainerComponent>,
     chat_input: Controller<ChatInputComponent>,
@@ -73,7 +78,7 @@ impl WidgetTemplate for ParameterSpinButton {
 
 #[relm4::component(async, pub)]
 impl AsyncComponent for ChatScreen {
-    type Init = Arc<Mutex<Assistant>>;
+    type Init = (Arc<Mutex<Assistant>>, Arc<Mutex<Database>>);
     type Input = ChatScreenInputMsg;
     type Output = ();
     type CommandOutput = ChatScreenCmdMsg;
@@ -224,9 +229,11 @@ impl AsyncComponent for ChatScreen {
                     }
                 });
 
-        let model = ChatScreen {
-            assistant: init,
+        let mut model = ChatScreen {
+            assistant: init.0,
+            chat_history: init.1,
             options: AssistantOptions::default(),
+            current_thread_id: None,
             message_bubbles,
             chat_input,
         };
@@ -257,23 +264,64 @@ impl AsyncComponent for ChatScreen {
         }
 
         {
-            // System Message
-            let system_message = Message {
-                content: String::from("You are a helpful assistant. You reply to user queries in a helpful manner.\n \
-                You should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. \
-                You help with writing, analysis, question answering, math, coding, and all sorts of other tasks. \
-                You use markdown formatting for your replies."),
-                role: Role::System,
-            };
-            model
-                .message_bubbles
-                .sender()
-                .emit(MessageBubbleContainerInputMsg::AddNewMessage(
-                    system_message.clone(),
-                ));
+            let mut chat_history = model.chat_history.lock().await;
+            let thread = chat_history
+                .get_latest_thread()
+                .await
+                .expect("Getting latest thread should work");
+            let thread = match thread {
+                Some(thread) => {
+                    let messages = chat_history
+                        .get_messages(thread.id)
+                        .await
+                        .expect("Getting messages should work");
 
-            let mut assistant = model.assistant.lock().await;
-            assistant.add_message(system_message);
+                    let messages: Vec<Message> = messages
+                        .into_iter()
+                        .map(|m| Message {
+                            content: m.content,
+                            role: Role::try_from(m.role)
+                                .expect("Role string to enum conversion should work"),
+                        })
+                        .collect();
+
+                    for message in messages {
+                        model
+                            .message_bubbles
+                            .sender()
+                            .emit(MessageBubbleContainerInputMsg::AddNewMessage(message));
+                    }
+
+                    thread
+                }
+                None => {
+                    let thread = chat_history
+                        .create_thread(String::from("New Thread"))
+                        .await
+                        .expect("Creating thread should work");
+
+                    // System Message
+                    let system_message = Message {
+                        content: String::from("You are a helpful assistant. You reply to user queries in a helpful manner.\n \
+                        You should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. \
+                        You help with writing, analysis, question answering, math, coding, and all sorts of other tasks. \
+                        You use markdown formatting for your replies."),
+                        role: Role::System,
+                    };
+
+                    model.message_bubbles.sender().emit(
+                        MessageBubbleContainerInputMsg::AddNewMessage(system_message.clone()),
+                    );
+
+                    chat_history
+                        .create_message(thread.id, system_message.content, system_message.role)
+                        .await
+                        .expect("Creating message should work");
+
+                    thread
+                }
+            };
+            model.current_thread_id = Some(thread.id);
         }
 
         AsyncComponentParts { model, widgets }
@@ -355,8 +403,12 @@ impl AsyncComponent for ChatScreen {
                         message.clone(),
                     ));
                 {
-                    let mut assistant = self.assistant.lock().await;
-                    assistant.add_message(message);
+                    let mut chat_history = self.chat_history.lock().await;
+                    let thread_id = self.current_thread_id.unwrap();
+                    chat_history
+                        .create_message(thread_id, message.content, message.role)
+                        .await
+                        .expect("Message should be created");
                 }
                 sender
                     .input_sender()
@@ -367,12 +419,30 @@ impl AsyncComponent for ChatScreen {
                     .sender()
                     .emit(MessageBubbleContainerInputMsg::AddEmptyAssistantMessage);
 
+                let thread_id = self.current_thread_id.unwrap();
+
+                let mut chat_history = self.chat_history.lock().await;
+                let messages = chat_history
+                    .get_messages(thread_id)
+                    .await
+                    .expect("Getting messages should work");
+
+                let messages: Vec<Message> = messages
+                    .into_iter()
+                    .map(|m| Message {
+                        content: m.content,
+                        role: Role::try_from(m.role)
+                            .expect("Role string to enum conversion should work"),
+                    })
+                    .collect();
+
                 let assistant = self.assistant.clone();
                 sender.command(|out, shutdown: relm4::ShutdownReceiver| {
                     shutdown
                         .register(async move {
                             let mut assistant = assistant.lock().await;
-                            let mut message_stream = match assistant.generate_answer().await {
+                            let mut message_stream = match assistant.generate_answer(messages).await
+                            {
                                 Ok(stream) => stream,
                                 Err(error) => {
                                     tracing::error!(
@@ -381,8 +451,6 @@ impl AsyncComponent for ChatScreen {
                                     return;
                                 }
                             };
-
-                            
 
                             while let Some(result) = message_stream.next().await {
                                 match result {

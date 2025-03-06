@@ -20,7 +20,7 @@ pub struct Thread {
 }
 
 #[derive(Insertable)]
-#[diesel(table_name = threads)]
+#[diesel(table_name = messages)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct NewMessage<'a> {
     pub thread_id: i64,

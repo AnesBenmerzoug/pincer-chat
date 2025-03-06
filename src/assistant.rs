@@ -2,28 +2,15 @@ pub mod database;
 pub mod ollama;
 
 use anyhow::Result;
+use database::Database;
 use futures::Stream;
 use futures::StreamExt;
 
+use self::database::models::Message as DatabaseMessage;
 use self::ollama::{
     api::{chat, list_models, pull_model, version},
-    types::{Message, PullModelResponse},
+    types::{Message as OllamaMessage, PullModelResponse, Role},
 };
-
-#[derive(Debug, Default)]
-pub struct Messages {
-    messages: Vec<Message>,
-}
-
-impl Messages {
-    fn get_messages(&self) -> Vec<Message> {
-        self.messages.clone()
-    }
-
-    fn add_message(&mut self, message: Message) {
-        self.messages.push(message);
-    }
-}
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -49,14 +36,20 @@ impl Default for AssistantParameters {
 
 #[derive(Debug)]
 pub struct Assistant {
-    messages: Messages,
+    database: Database,
     parameters: AssistantParameters,
 }
 
 impl Assistant {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
+        let database = match Database::new().await {
+            Ok(database) => database,
+            Err(error) => {
+                panic!("Failed connecting to database because of: {error}")
+            }
+        };
         Assistant {
-            messages: Messages::default(),
+            database,
             parameters: AssistantParameters::default(),
         }
     }
@@ -82,14 +75,6 @@ impl Assistant {
             model: self.parameters.model.clone(),
             ..AssistantParameters::default()
         }
-    }
-
-    pub fn set_parameters(&mut self, parameters: AssistantParameters) {
-        self.parameters = parameters;
-    }
-
-    pub fn get_parameters(&self) -> AssistantParameters {
-        self.parameters.clone()
     }
 
     pub async fn is_ollama_running(&self) -> bool {
@@ -127,13 +112,10 @@ impl Assistant {
         Ok(pull_model_stream)
     }
 
-    pub fn add_message(&mut self, message: Message) {
-        self.messages.add_message(message);
-    }
-
-    pub async fn generate_answer(&mut self) -> Result<impl Stream<Item = Result<Message>>> {
-        let messages = self.messages.get_messages();
-
+    pub async fn generate_answer(
+        &mut self,
+        messages: Vec<OllamaMessage>,
+    ) -> Result<impl Stream<Item = Result<OllamaMessage>>> {
         let response_stream = chat(self.parameters.model.clone().unwrap(), messages).await?;
         let generation_stream = response_stream.map(|chat_response| match chat_response {
             Ok(chat_response) => {

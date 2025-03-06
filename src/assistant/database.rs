@@ -1,15 +1,16 @@
 pub mod models;
 pub mod schema;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use diesel::prelude::*;
 use diesel::sqlite::{Sqlite, SqliteConnection};
 use diesel_async::sync_connection_wrapper::SyncConnectionWrapper;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use home::home_dir;
+use std::fmt;
 
-use self::models::{NewMessage, Message, NewThread, Thread};
+use self::models::{Message, NewMessage, NewThread, Thread};
 
 use super::ollama::types::Role;
 
@@ -19,6 +20,12 @@ const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
 pub struct Database {
     connection: SyncConnectionWrapper<SqliteConnection>,
+}
+
+impl fmt::Debug for Database {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Database")
+    }
 }
 
 impl Database {
@@ -38,6 +45,15 @@ impl Database {
         Ok(instance)
     }
 
+    pub async fn is_running(&mut self) -> bool {
+        !schema::threads::table
+            .select(Thread::as_select())
+            .limit(1)
+            .load(&mut self.connection)
+            .await
+            .is_err()
+    }
+
     pub async fn create_thread(&mut self, title: String) -> Result<Thread> {
         let new_thread = NewThread { title: &*title };
         let inserted_thread = diesel::insert_into(schema::threads::table)
@@ -55,6 +71,23 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_threads(&mut self) -> Result<Vec<Thread>> {
+        let threads = schema::threads::table
+            .select(Thread::as_select())
+            .load(&mut self.connection)
+            .await?;
+        Ok(threads)
+    }
+
+    pub async fn get_latest_thread(&mut self) -> Result<Option<Thread>> {
+        let thread = schema::threads::table
+            .select(Thread::as_select())
+            .first(&mut self.connection)
+            .await
+            .optional();
+        thread.map_err(Error::msg)
+    }
+
     pub async fn get_messages(&mut self, thread_id: i64) -> Result<Vec<Message>> {
         let messages = schema::messages::table
             .filter(schema::messages::thread_id.eq(thread_id))
@@ -65,14 +98,23 @@ impl Database {
         Ok(messages)
     }
 
-    pub async fn create_message(&mut self, thread_id: i64, content: String, role: Role) -> Result<Message> {
+    pub async fn create_message(
+        &mut self,
+        thread_id: i64,
+        content: String,
+        role: Role,
+    ) -> Result<Message> {
         let role = match role {
             Role::User => "user",
             Role::Assistant => "assistant",
             Role::System => "system",
-            Role::Tool => "tool"
+            Role::Tool => "tool",
         };
-        let new_message = NewMessage { thread_id, content: &*content, role};
+        let new_message = NewMessage {
+            thread_id,
+            content: &*content,
+            role,
+        };
         let inserted_message = diesel::insert_into(schema::messages::table)
             .values(&new_message)
             .returning(Message::as_returning())
