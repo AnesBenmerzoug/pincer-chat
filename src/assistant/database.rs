@@ -10,9 +10,10 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use home::home_dir;
 use std::fmt;
 
-use self::models::{Message, NewMessage, NewThread, Thread};
+use super::notification::{Notifier, NotifierMessage};
+use super::ollama::types::{Message as OllamaMessage, Role};
 
-use super::ollama::types::Role;
+use self::models::{Message, NewMessage, NewThread, Thread};
 
 type InnerConnection = SqliteConnection;
 type InnerDB = Sqlite;
@@ -20,6 +21,7 @@ const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
 pub struct Database {
     connection: SyncConnectionWrapper<SqliteConnection>,
+    pub notifier: Notifier,
 }
 
 impl fmt::Debug for Database {
@@ -41,7 +43,10 @@ impl Database {
             None => return Err(anyhow!("Unable to get your home dir!")),
         };
         let connection = SyncConnectionWrapper::<SqliteConnection>::establish(database_url).await?;
-        let instance = Self { connection };
+        let instance = Self {
+            connection,
+            notifier: Notifier::new(),
+        };
         Ok(instance)
     }
 
@@ -120,6 +125,15 @@ impl Database {
             .returning(Message::as_returning())
             .get_result(&mut self.connection)
             .await?;
+        {
+            let inserted_message = OllamaMessage {
+                content: inserted_message.content.clone(),
+                role: Role::try_from(inserted_message.role.clone())
+                    .expect("Message role string to enum conversion should work"),
+            };
+            self.notifier
+                .notify(NotifierMessage::NewMessage(inserted_message))
+        }
         Ok(inserted_message)
     }
 }

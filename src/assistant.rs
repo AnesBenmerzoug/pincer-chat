@@ -1,4 +1,5 @@
 pub mod database;
+pub mod notification;
 pub mod ollama;
 
 use anyhow::Result;

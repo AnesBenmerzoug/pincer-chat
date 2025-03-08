@@ -9,6 +9,7 @@ use tracing;
 use crate::assistant::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
 use crate::assistant::{
     database::{models::Thread, Database},
+    notification::{Notifier, NotifierMessage},
     Assistant, AssistantParameters,
 };
 use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
@@ -229,14 +230,29 @@ impl AsyncComponent for ChatScreen {
                     }
                 });
 
+        let assistant = init.0;
+        let chat_history = init.1;
+
         let mut model = ChatScreen {
-            assistant: init.0,
-            chat_history: init.1,
+            assistant: assistant,
+            chat_history: chat_history,
             options: AssistantOptions::default(),
             current_thread_id: None,
             message_bubbles,
             chat_input,
         };
+
+        {
+            let chat_history = model.chat_history.lock().await;
+            chat_history.notifier.subscribe(
+                model.message_bubbles.sender(),
+                |notifier_message: NotifierMessage| match notifier_message {
+                    NotifierMessage::NewMessage(message) => {
+                        MessageBubbleContainerInputMsg::AddNewMessage(message)
+                    }
+                },
+            );
+        }
 
         // References used in the view macro
         let message_bubbles = model.message_bubbles.widget();
@@ -397,11 +413,6 @@ impl AsyncComponent for ChatScreen {
                     content: user_input,
                     role: Role::User,
                 };
-                self.message_bubbles
-                    .sender()
-                    .emit(MessageBubbleContainerInputMsg::AddNewMessage(
-                        message.clone(),
-                    ));
                 {
                     let mut chat_history = self.chat_history.lock().await;
                     let thread_id = self.current_thread_id.unwrap();
