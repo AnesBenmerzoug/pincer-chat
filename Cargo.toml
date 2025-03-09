@@ -11,7 +11,10 @@ diesel = { version = "2.2.7", features = [
     "returning_clauses_for_sqlite_3_35",
     "chrono",
 ] }
-diesel-async = { version = "0.5.2", features = ["sqlite"] }
+diesel-async = { version = "0.5.2", features = [
+    "sqlite",
+    "async-connection-wrapper",
+] }
 diesel_migrations = "2.2.0"
 futures = "0.3.31"
 home = "0.5.11"

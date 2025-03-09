@@ -24,7 +24,8 @@ pub enum StartupScreenState {
     ListModels,
     CheckingDatabase,
     DatabaseUnreachable,
-    RunningMigrations,
+    RunningDatabaseMigrations,
+    DatabaseMigrationsFailed,
     End,
 }
 
@@ -37,7 +38,8 @@ pub enum StartupScreenInputMsg {
     ListModels,
     CheckDatabase,
     DatabaseUnreachable,
-    RunMigrations,
+    RunDatabaseMigrations,
+    DatabaseMigrationsFailed,
     End,
 }
 
@@ -196,8 +198,8 @@ impl AsyncComponent for StartupScreen {
                     true => {
                         sender
                             .input_sender()
-                            .emit(StartupScreenInputMsg::RunMigrations);
-                        self.state = StartupScreenState::RunningMigrations;
+                            .emit(StartupScreenInputMsg::RunDatabaseMigrations);
+                        self.state = StartupScreenState::RunningDatabaseMigrations;
                     }
                     false => {
                         sender
@@ -210,9 +212,27 @@ impl AsyncComponent for StartupScreen {
             StartupScreenInputMsg::DatabaseUnreachable => {
                 tracing::info!("Database unreachable");
             }
-            StartupScreenInputMsg::RunMigrations => {
+            StartupScreenInputMsg::RunDatabaseMigrations => {
                 tracing::info!("Running database migrations");
+                let mut chat_history = self.chat_history.lock().await;
+                match chat_history.run_migrations().await {
+                    Ok(_) => {
+                        tracing::info!("Database migrations successful");
+                        sender.input_sender().emit(StartupScreenInputMsg::End);
+                        self.state = StartupScreenState::End;
+                    }
+                    Err(error) => {
+                        tracing::error!("Database migrations failed because of {error}");
+                        sender
+                            .input_sender()
+                            .emit(StartupScreenInputMsg::DatabaseMigrationsFailed);
+                        self.state = StartupScreenState::DatabaseMigrationsFailed;
+                    }
+                }
                 sender.input_sender().emit(StartupScreenInputMsg::End);
+            }
+            StartupScreenInputMsg::DatabaseMigrationsFailed => {
+                tracing::info!("Database migrations failed");
             }
             StartupScreenInputMsg::End => {
                 tracing::info!("Finished application startup");
@@ -246,9 +266,12 @@ impl AsyncComponent for StartupScreen {
             StartupScreenState::DatabaseUnreachable => {
                 widgets.status_label.set_label("Database unreachable :(");
             }
-            StartupScreenState::RunningMigrations => {
+            StartupScreenState::RunningDatabaseMigrations => {
                 widgets.status_label.set_label("Running migrations...");
             }
+            StartupScreenState::DatabaseMigrationsFailed => widgets
+                .status_label
+                .set_label("Database migrations failed :("),
             StartupScreenState::End => {
                 widgets.status_label.set_label("Application is ready!");
             }

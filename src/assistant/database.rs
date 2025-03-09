@@ -6,6 +6,7 @@ use std::fmt;
 use anyhow::{anyhow, Error, Result};
 use diesel::prelude::*;
 use diesel::sqlite::{Sqlite, SqliteConnection};
+use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
 use diesel_async::sync_connection_wrapper::SyncConnectionWrapper;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -17,11 +18,10 @@ use super::ollama::types::{Message as OllamaMessage, Role};
 use self::models::{Message, NewMessage, NewThread, Thread};
 use self::schema::{messages, threads};
 
-type InnerConnection = SqliteConnection;
-type InnerDB = Sqlite;
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
 pub struct Database {
+    database_url: String,
     connection: SyncConnectionWrapper<SqliteConnection>,
     pub notifier: Notifier,
 }
@@ -44,12 +44,29 @@ impl Database {
             Some(path) => path,
             None => return Err(anyhow!("Unable to get your home dir!")),
         };
-        let connection = SyncConnectionWrapper::<SqliteConnection>::establish(database_url).await?;
+        let connection = Self::connect(database_url.clone()).await?;
         let instance = Self {
+            database_url: String::from(database_url),
             connection,
             notifier: Notifier::new(),
         };
         Ok(instance)
+    }
+
+    pub async fn connect(database_url: &str) -> Result<SyncConnectionWrapper<SqliteConnection>> {
+        let connection = SyncConnectionWrapper::<SqliteConnection>::establish(database_url).await?;
+        Ok(connection)
+    }
+
+    pub async fn run_migrations(&self) -> Result<()> {
+        let connection = Self::connect(&*self.database_url.clone()).await?;
+        let mut async_wrapper: AsyncConnectionWrapper<SyncConnectionWrapper<SqliteConnection>> =
+            AsyncConnectionWrapper::from(connection);
+        tokio::task::spawn_blocking(move || {
+            async_wrapper.run_pending_migrations(MIGRATIONS).unwrap();
+        })
+        .await?;
+        Ok(())
     }
 
     pub async fn is_running(&mut self) -> bool {
