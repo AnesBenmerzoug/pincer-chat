@@ -10,6 +10,7 @@ pub struct Notifier {
 #[derive(Debug, Clone)]
 pub enum NotifierMessage {
     NewMessage(Message),
+    UpdateMessage(Message),
 }
 
 impl Notifier {

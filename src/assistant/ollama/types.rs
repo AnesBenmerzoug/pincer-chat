@@ -29,6 +29,17 @@ impl TryFrom<String> for Role {
     }
 }
 
+impl Into<&str> for Role {
+    fn into(self) -> &'static str {
+        match self {
+            Role::User => "user",
+            Role::Assistant => "assistant",
+            Role::System => "system",
+            Role::Tool => "tool",
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,

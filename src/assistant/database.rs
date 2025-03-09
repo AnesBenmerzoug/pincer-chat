@@ -1,6 +1,8 @@
 pub mod models;
 pub mod schema;
 
+use std::fmt;
+
 use anyhow::{anyhow, Error, Result};
 use diesel::prelude::*;
 use diesel::sqlite::{Sqlite, SqliteConnection};
@@ -8,12 +10,12 @@ use diesel_async::sync_connection_wrapper::SyncConnectionWrapper;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use home::home_dir;
-use std::fmt;
 
 use super::notification::{Notifier, NotifierMessage};
 use super::ollama::types::{Message as OllamaMessage, Role};
 
 use self::models::{Message, NewMessage, NewThread, Thread};
+use self::schema::{messages, threads};
 
 type InnerConnection = SqliteConnection;
 type InnerDB = Sqlite;
@@ -61,7 +63,7 @@ impl Database {
 
     pub async fn create_thread(&mut self, title: String) -> Result<Thread> {
         let new_thread = NewThread { title: &*title };
-        let inserted_thread = diesel::insert_into(schema::threads::table)
+        let inserted_thread = diesel::insert_into(threads::table)
             .values(&new_thread)
             .returning(Thread::as_returning())
             .get_result(&mut self.connection)
@@ -70,7 +72,9 @@ impl Database {
     }
 
     pub async fn delete_thread(&mut self, thread_id: i64) -> Result<()> {
-        diesel::delete(schema::threads::table.filter(schema::threads::id.eq(thread_id)))
+        use self::schema::threads::dsl::*;
+
+        diesel::delete(threads.filter(id.eq(thread_id)))
             .execute(&mut self.connection)
             .await?;
         Ok(())
@@ -109,18 +113,12 @@ impl Database {
         content: String,
         role: Role,
     ) -> Result<Message> {
-        let role = match role {
-            Role::User => "user",
-            Role::Assistant => "assistant",
-            Role::System => "system",
-            Role::Tool => "tool",
-        };
         let new_message = NewMessage {
             thread_id,
             content: &*content,
-            role,
+            role: role.into(),
         };
-        let inserted_message = diesel::insert_into(schema::messages::table)
+        let inserted_message = diesel::insert_into(messages::table)
             .values(&new_message)
             .returning(Message::as_returning())
             .get_result(&mut self.connection)
@@ -135,5 +133,23 @@ impl Database {
                 .notify(NotifierMessage::NewMessage(inserted_message))
         }
         Ok(inserted_message)
+    }
+
+    pub async fn update_message(&mut self, message_id: i64, content_update: String) -> Result<()> {
+        use self::schema::messages::dsl::*;
+
+        diesel::update(messages.find(message_id))
+            .set(content.eq(content.concat(&*content_update)))
+            .execute(&mut self.connection)
+            .await?;
+        {
+            let message_update = OllamaMessage {
+                content: content_update,
+                role: Role::Assistant,
+            };
+            self.notifier
+                .notify(NotifierMessage::UpdateMessage(message_update));
+        }
+        Ok(())
     }
 }

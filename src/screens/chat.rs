@@ -250,6 +250,9 @@ impl AsyncComponent for ChatScreen {
                     NotifierMessage::NewMessage(message) => {
                         MessageBubbleContainerInputMsg::AddNewMessage(message)
                     }
+                    NotifierMessage::UpdateMessage(message_update) => {
+                        MessageBubbleContainerInputMsg::AppendToLastMessage(message_update)
+                    }
                 },
             );
         }
@@ -426,29 +429,37 @@ impl AsyncComponent for ChatScreen {
                     .emit(ChatScreenInputMsg::AssistantAnswer);
             }
             ChatScreenInputMsg::AssistantAnswer => {
-                self.message_bubbles
-                    .sender()
-                    .emit(MessageBubbleContainerInputMsg::AddEmptyAssistantMessage);
-
                 let thread_id = self.current_thread_id.unwrap();
+                let chat_history = self.chat_history.clone();
 
-                let mut chat_history = self.chat_history.lock().await;
-                let messages = chat_history
-                    .get_messages(thread_id)
-                    .await
-                    .expect("Getting messages should work");
+                let messages: Vec<Message> = {
+                    let mut chat_history = chat_history.lock().await;
+                    let messages = chat_history
+                        .get_messages(thread_id)
+                        .await
+                        .expect("Getting messages should work");
 
-                let messages: Vec<Message> = messages
-                    .into_iter()
-                    .map(|m| Message {
-                        content: m.content,
-                        role: Role::try_from(m.role)
-                            .expect("Role string to enum conversion should work"),
-                    })
-                    .collect();
+                    messages
+                        .into_iter()
+                        .map(|m| Message {
+                            content: m.content,
+                            role: Role::try_from(m.role)
+                                .expect("Role string to enum conversion should work"),
+                        })
+                        .collect()
+                };
+
+                let assistant_message_id = {
+                    let mut chat_history = chat_history.lock().await;
+                    let message = chat_history
+                        .create_message(thread_id, String::new(), Role::Assistant)
+                        .await
+                        .expect("Creating an empty assistant message should work");
+                    message.id
+                };
 
                 let assistant = self.assistant.clone();
-                sender.command(|out, shutdown: relm4::ShutdownReceiver| {
+                sender.command(move |out, shutdown: relm4::ShutdownReceiver| {
                     shutdown
                         .register(async move {
                             let mut assistant = assistant.lock().await;
@@ -467,7 +478,10 @@ impl AsyncComponent for ChatScreen {
                                 match result {
                                     Ok(message) => {
                                         tracing::info!("Received assistant answer: {:?}", message);
-                                        out.emit(ChatScreenCmdMsg::AppendToMessage(message));
+                                        let mut chat_history = chat_history.lock().await;
+                                        chat_history
+                                            .update_message(assistant_message_id, message.content)
+                                            .await;
                                     }
                                     Err(error) => {
                                         tracing::error!(
