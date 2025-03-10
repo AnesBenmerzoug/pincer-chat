@@ -9,7 +9,7 @@ pub struct NewThread<'a> {
     pub title: &'a str,
 }
 
-#[derive(Queryable, Selectable)]
+#[derive(Debug, Queryable, Selectable)]
 #[diesel(table_name = threads)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Thread {

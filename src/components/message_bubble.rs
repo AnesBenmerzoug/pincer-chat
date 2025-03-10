@@ -18,7 +18,6 @@ pub struct MessageBubbleContainerComponent {
 #[derive(Debug)]
 pub enum MessageBubbleContainerInputMsg {
     AddNewMessage(Message),
-    AddEmptyAssistantMessage,
     AppendToLastMessage(Message),
 }
 
@@ -82,15 +81,6 @@ impl AsyncComponent for MessageBubbleContainerComponent {
                 let adjustment = widgets.scrolled_window.vadjustment();
                 adjustment.set_value(adjustment.upper() - adjustment.page_size());
                 widgets.scrolled_window.set_vadjustment(Some(&adjustment));
-            }
-            MessageBubbleContainerInputMsg::AddEmptyAssistantMessage => {
-                let message = Message {
-                    content: String::new(),
-                    role: Role::Assistant,
-                };
-                sender
-                    .input_sender()
-                    .emit(MessageBubbleContainerInputMsg::AddNewMessage(message));
             }
             MessageBubbleContainerInputMsg::AppendToLastMessage(message) => {
                 let mut guard = self.message_bubbles.guard();
