@@ -1,7 +1,8 @@
 use relm4::spawn;
 use tokio::sync::broadcast;
+use tracing;
 
-use super::ollama::types::Message;
+use super::database::models::{Message, Thread};
 
 pub struct Notifier {
     broadcast_sender: broadcast::Sender<NotifierMessage>,
@@ -10,7 +11,9 @@ pub struct Notifier {
 #[derive(Debug, Clone)]
 pub enum NotifierMessage {
     NewMessage(Message),
-    UpdateMessage(Message),
+    UpdateMessage(String),
+    NewThread(Thread),
+    GetThreadMessages(Vec<Message>),
 }
 
 impl Notifier {
@@ -22,9 +25,10 @@ impl Notifier {
     }
     /// Sends a message to all the subscribers.
     pub fn notify(&self, message: NotifierMessage) {
-        self.broadcast_sender
-            .send(message)
-            .expect("Message should be sent");
+        match self.broadcast_sender.send(message) {
+            Ok(_) => (),
+            Err(error) => tracing::warn!("Failed notifying subscribers because of {error}"),
+        };
     }
 
     /// Subscribe to a [`Notifier`].
@@ -32,7 +36,7 @@ impl Notifier {
     /// `notify` is called.
     pub fn subscribe<Msg, F>(&self, sender: &relm4::Sender<Msg>, f: F)
     where
-        F: Fn(NotifierMessage) -> Msg + 'static + Send + Sync,
+        F: Fn(NotifierMessage) -> Option<Msg> + 'static + Send + Sync,
         Msg: Send + 'static,
     {
         let sender = sender.clone();
@@ -40,7 +44,10 @@ impl Notifier {
 
         spawn(async move {
             while let Ok(input) = receiver.recv().await {
-                sender.emit(f(input));
+                let message = f(input);
+                if let Some(message) = message {
+                    sender.emit(message);
+                }
             }
         });
     }

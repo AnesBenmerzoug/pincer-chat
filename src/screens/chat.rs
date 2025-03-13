@@ -12,14 +12,16 @@ use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatI
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
 };
-use crate::components::thread_list::{ThreadListContainerComponent, ThreadListContainerInputMsg};
+use crate::components::thread_list::{
+    ThreadListContainerComponent, ThreadListContainerInputMsg, ThreadListContainerOutputMsg,
+};
 
 #[derive(Debug)]
 pub struct ChatScreen {
     assistant: Arc<Mutex<Assistant>>,
     chat_history: Arc<Mutex<Database>>,
     options: AssistantOptions,
-    current_thread_id: Option<i64>,
+    current_thread_id: i64,
     // Components
     message_bubbles: AsyncController<MessageBubbleContainerComponent>,
     chat_input: Controller<ChatInputComponent>,
@@ -46,6 +48,8 @@ impl Default for AssistantOptions {
 #[derive(Debug)]
 pub enum ChatScreenInputMsg {
     SelectModel(String),
+    CreateNewThread,
+    GetThreadMessages(i64),
     SubmitUserInput(String),
     AssistantAnswer,
     // Assistant Parameters
@@ -59,7 +63,6 @@ pub enum ChatScreenInputMsg {
 pub enum ChatScreenCmdMsg {
     PullModelEnd,
     AnswerEnd,
-    AppendToMessage(Message),
 }
 
 #[relm4::widget_template(pub)]
@@ -84,6 +87,19 @@ impl AsyncComponent for ChatScreen {
 
     view! {
         gtk::Paned {
+            #[wrap(Some)]
+            set_start_child = &gtk::Box{
+                set_vexpand: true,
+                set_hexpand: true,
+                set_valign: gtk::Align::Fill,
+                set_margin_all: 5,
+                set_spacing: 5,
+                set_css_classes: &["main_container"],
+
+                #[local_ref]
+                thread_list -> gtk::Box {},
+            },
+
             #[wrap(Some)]
             set_end_child = &gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
@@ -210,19 +226,6 @@ impl AsyncComponent for ChatScreen {
                 #[local_ref]
                 chat_input -> gtk::Box {},
             },
-
-            #[wrap(Some)]
-            set_start_child = &gtk::Box{
-                set_vexpand: true,
-                set_hexpand: true,
-                set_valign: gtk::Align::Fill,
-                set_margin_all: 5,
-                set_spacing: 5,
-                set_css_classes: &["main_container"],
-
-                #[local_ref]
-                thread_list -> gtk::ScrolledWindow {},
-            }
         },
     }
 
@@ -231,6 +234,38 @@ impl AsyncComponent for ChatScreen {
         root: Self::Root,
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
+        let assistant = init.0;
+        let chat_history = init.1;
+
+        let threads = {
+            let mut chat_history = chat_history.lock().await;
+            let mut threads = chat_history
+                .get_threads()
+                .await
+                .expect("Getting all thread should work");
+
+            if threads.len() == 0 {
+                tracing::info!("No threads were found. Creating new one");
+                let thread = chat_history
+                    .create_thread("New Thread")
+                    .await
+                    .expect("Creating thread should work");
+                threads.push(thread);
+            }
+            threads
+        };
+
+        let latest_thread = threads.first().expect("First thread must exist");
+        let latest_thread_id = latest_thread.id;
+
+        let messages = {
+            let mut chat_history = chat_history.lock().await;
+            chat_history
+                .get_messages(latest_thread_id)
+                .await
+                .expect("Getting messages should work")
+        };
+
         let message_bubbles = MessageBubbleContainerComponent::builder()
             .launch(())
             .detach();
@@ -244,16 +279,22 @@ impl AsyncComponent for ChatScreen {
                     }
                 });
 
-        let thread_list = ThreadListContainerComponent::builder().launch(()).detach();
-
-        let assistant = init.0;
-        let chat_history = init.1;
+        let thread_list = ThreadListContainerComponent::builder()
+            .launch(threads)
+            .forward(sender.input_sender(), |output| match output {
+                ThreadListContainerOutputMsg::CreateNewThread => {
+                    ChatScreenInputMsg::CreateNewThread
+                }
+                ThreadListContainerOutputMsg::GetThreadMessages(thread_id) => {
+                    ChatScreenInputMsg::GetThreadMessages(thread_id)
+                }
+            });
 
         let mut model = ChatScreen {
             assistant: assistant,
             chat_history: chat_history,
             options: AssistantOptions::default(),
-            current_thread_id: None,
+            current_thread_id: latest_thread_id,
             message_bubbles,
             chat_input,
             thread_list,
@@ -266,11 +307,28 @@ impl AsyncComponent for ChatScreen {
                 model.message_bubbles.sender(),
                 |notifier_message: NotifierMessage| match notifier_message {
                     NotifierMessage::NewMessage(message) => {
-                        MessageBubbleContainerInputMsg::AddNewMessage(message)
+                        Some(MessageBubbleContainerInputMsg::AddNewMessage(message))
                     }
-                    NotifierMessage::UpdateMessage(message_update) => {
-                        MessageBubbleContainerInputMsg::AppendToLastMessage(message_update)
+                    NotifierMessage::UpdateMessage(message_update) => Some(
+                        MessageBubbleContainerInputMsg::AppendToLastMessage(message_update),
+                    ),
+                    NotifierMessage::GetThreadMessages(messages) => {
+                        Some(MessageBubbleContainerInputMsg::RefreshMessages(messages))
                     }
+                    _ => None,
+                },
+            );
+        }
+        // Connect chat history notifier to thread list
+        {
+            let chat_history = model.chat_history.lock().await;
+            chat_history.notifier.subscribe(
+                model.thread_list.sender(),
+                |notifier_message: NotifierMessage| match notifier_message {
+                    NotifierMessage::NewThread(thread) => {
+                        Some(ThreadListContainerInputMsg::AddThread(thread))
+                    }
+                    _ => None,
                 },
             );
         }
@@ -299,71 +357,6 @@ impl AsyncComponent for ChatScreen {
             widgets
                 .model_selection_drop_down
                 .set_model(Some(&model_list));
-        }
-
-        {
-            let mut chat_history = model.chat_history.lock().await;
-            let thread = chat_history
-                .get_latest_thread()
-                .await
-                .expect("Getting latest thread should work");
-            let thread = match thread {
-                Some(thread) => {
-                    let messages = chat_history
-                        .get_messages(thread.id)
-                        .await
-                        .expect("Getting messages should work");
-
-                    let messages: Vec<Message> = messages
-                        .into_iter()
-                        .map(|m| Message {
-                            content: m.content,
-                            role: Role::try_from(m.role)
-                                .expect("Role string to enum conversion should work"),
-                        })
-                        .collect();
-
-                    for message in messages {
-                        model
-                            .message_bubbles
-                            .sender()
-                            .emit(MessageBubbleContainerInputMsg::AddNewMessage(message));
-                    }
-
-                    thread
-                }
-                None => {
-                    let thread = chat_history
-                        .create_thread(String::from("New Thread"))
-                        .await
-                        .expect("Creating thread should work");
-
-                    // System Message
-                    let system_message = Message {
-                        content: String::from("You are a helpful assistant. You reply to user queries in a helpful manner.\n \
-                        You should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. \
-                        You help with writing, analysis, question answering, math, coding, and all sorts of other tasks. \
-                        You use markdown formatting for your replies."),
-                        role: Role::System,
-                    };
-
-                    model.message_bubbles.sender().emit(
-                        MessageBubbleContainerInputMsg::AddNewMessage(system_message.clone()),
-                    );
-
-                    chat_history
-                        .create_message(thread.id, system_message.content, system_message.role)
-                        .await
-                        .expect("Creating message should work");
-
-                    thread
-                }
-            };
-            model.current_thread_id = Some(thread.id);
-            model
-                .thread_list
-                .sender()
-                .emit(ThreadListContainerInputMsg::AddThread(thread));
         }
 
         AsyncComponentParts { model, widgets }
@@ -433,6 +426,28 @@ impl AsyncComponent for ChatScreen {
                         .boxed()
                 })
             }
+            ChatScreenInputMsg::GetThreadMessages(thread_id) => {
+                tracing::info!("Getting messages for thread with id {thread_id}");
+                {
+                    let mut chat_history = self.chat_history.lock().await;
+                    chat_history
+                        .get_messages(thread_id)
+                        .await
+                        .expect("Getting thread messages should work");
+                    self.current_thread_id = thread_id;
+                }
+            }
+            ChatScreenInputMsg::CreateNewThread => {
+                tracing::info!("Creating new thread");
+                {
+                    let mut chat_history = self.chat_history.lock().await;
+                    let thread = chat_history
+                        .create_thread("New Thread")
+                        .await
+                        .expect("Creating new thread should work");
+                    self.current_thread_id = thread.id;
+                }
+            }
             ChatScreenInputMsg::SubmitUserInput(user_input) => {
                 tracing::info!("Submitting user input");
                 let message = Message {
@@ -441,7 +456,7 @@ impl AsyncComponent for ChatScreen {
                 };
                 {
                     let mut chat_history = self.chat_history.lock().await;
-                    let thread_id = self.current_thread_id.unwrap();
+                    let thread_id = self.current_thread_id;
                     chat_history
                         .create_message(thread_id, message.content, message.role)
                         .await
@@ -452,7 +467,7 @@ impl AsyncComponent for ChatScreen {
                     .emit(ChatScreenInputMsg::AssistantAnswer);
             }
             ChatScreenInputMsg::AssistantAnswer => {
-                let thread_id = self.current_thread_id.unwrap();
+                let thread_id = self.current_thread_id;
                 let chat_history = self.chat_history.clone();
 
                 let messages: Vec<Message> = {
@@ -535,11 +550,6 @@ impl AsyncComponent for ChatScreen {
         match message {
             ChatScreenCmdMsg::PullModelEnd => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Enable);
-            }
-            ChatScreenCmdMsg::AppendToMessage(message) => {
-                self.message_bubbles
-                    .sender()
-                    .emit(MessageBubbleContainerInputMsg::AppendToLastMessage(message));
             }
             ChatScreenCmdMsg::AnswerEnd => {
                 self.chat_input.sender().emit(ChatInputInputMsg::Enable);

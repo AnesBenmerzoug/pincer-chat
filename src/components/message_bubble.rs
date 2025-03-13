@@ -8,7 +8,8 @@ use relm4::prelude::*;
 use relm4::view;
 use std::future::Future;
 
-use crate::assistant::ollama::types::{Message, Role};
+use crate::assistant::database::models::Message;
+use crate::assistant::ollama::types::Role;
 
 #[derive(Debug)]
 pub struct MessageBubbleContainerComponent {
@@ -17,8 +18,9 @@ pub struct MessageBubbleContainerComponent {
 
 #[derive(Debug)]
 pub enum MessageBubbleContainerInputMsg {
+    RefreshMessages(Vec<Message>),
     AddNewMessage(Message),
-    AppendToLastMessage(Message),
+    AppendToLastMessage(String),
 }
 
 #[relm4::component(async, pub)]
@@ -74,6 +76,18 @@ impl AsyncComponent for MessageBubbleContainerComponent {
         _: &Self::Root,
     ) {
         match message {
+            MessageBubbleContainerInputMsg::RefreshMessages(messages) => {
+                let mut guard = self.message_bubbles.guard();
+                guard.clear();
+                let _ = messages
+                    .into_iter()
+                    .map(|message| guard.push_back(message))
+                    .collect::<Vec<_>>();
+
+                let adjustment = widgets.scrolled_window.vadjustment();
+                adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                widgets.scrolled_window.set_vadjustment(Some(&adjustment));
+            }
             MessageBubbleContainerInputMsg::AddNewMessage(message) => {
                 let mut guard = self.message_bubbles.guard();
                 guard.push_back(message);
@@ -110,7 +124,8 @@ impl MessageBubbleComponent {
     pub async fn new(message: Message) -> Self {
         let buffer = gtk::TextBuffer::builder().text(&*message.content).build();
         let timestamp = Local::now().format("%d %B %Y at %R").to_string();
-        let role = message.role;
+        let role =
+            Role::try_from(message.role).expect("Converting role from string to enum should work");
         Self {
             buffer,
             role,
@@ -118,11 +133,8 @@ impl MessageBubbleComponent {
         }
     }
 
-    pub async fn append_to_message(&mut self, other: Message) -> Result<()> {
-        if self.role != other.role {
-            return Err(anyhow!("the two message roles should be the same"));
-        }
-        self.buffer.insert_at_cursor(&*other.content);
+    pub async fn append_to_message(&mut self, content: String) -> Result<()> {
+        self.buffer.insert_at_cursor(&*content);
         Ok(())
     }
 }

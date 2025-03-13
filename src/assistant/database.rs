@@ -5,7 +5,7 @@ use std::fmt;
 
 use anyhow::{anyhow, Error, Result};
 use diesel::prelude::*;
-use diesel::sqlite::{Sqlite, SqliteConnection};
+use diesel::sqlite::SqliteConnection;
 use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
 use diesel_async::sync_connection_wrapper::SyncConnectionWrapper;
 use diesel_async::{AsyncConnection, RunQueryDsl};
@@ -78,13 +78,32 @@ impl Database {
             .is_err()
     }
 
-    pub async fn create_thread(&mut self, title: String) -> Result<Thread> {
-        let new_thread = NewThread { title: &*title };
+    pub async fn create_thread(&mut self, title: &str) -> Result<Thread> {
+        let new_thread = NewThread { title: title };
         let inserted_thread = diesel::insert_into(threads::table)
             .values(&new_thread)
             .returning(Thread::as_returning())
             .get_result(&mut self.connection)
             .await?;
+
+        // System Message
+        let system_message = NewMessage {
+            thread_id: inserted_thread.id,
+            content: "You are a helpful assistant. You reply to user queries in a helpful manner.\n \
+            You should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. \
+            You help with writing, analysis, question answering, math, coding, and all sorts of other tasks. \
+            You use markdown formatting for your replies.",
+            role: Role::System.into(),
+        };
+
+        diesel::insert_into(messages::table)
+            .values(&system_message)
+            .returning(Message::as_returning())
+            .get_result(&mut self.connection)
+            .await?;
+
+        self.notifier
+            .notify(NotifierMessage::NewThread(inserted_thread.clone()));
         Ok(inserted_thread)
     }
 
@@ -100,6 +119,7 @@ impl Database {
     pub async fn get_threads(&mut self) -> Result<Vec<Thread>> {
         let threads = schema::threads::table
             .select(Thread::as_select())
+            .order_by(threads::last_updated_at.desc())
             .load(&mut self.connection)
             .await?;
         Ok(threads)
@@ -121,6 +141,8 @@ impl Database {
             .load(&mut self.connection)
             .await?;
 
+        self.notifier
+            .notify(NotifierMessage::GetThreadMessages(messages.clone()));
         Ok(messages)
     }
 
@@ -140,15 +162,9 @@ impl Database {
             .returning(Message::as_returning())
             .get_result(&mut self.connection)
             .await?;
-        {
-            let inserted_message = OllamaMessage {
-                content: inserted_message.content.clone(),
-                role: Role::try_from(inserted_message.role.clone())
-                    .expect("Message role string to enum conversion should work"),
-            };
-            self.notifier
-                .notify(NotifierMessage::NewMessage(inserted_message))
-        }
+
+        self.notifier
+            .notify(NotifierMessage::NewMessage(inserted_message.clone()));
         Ok(inserted_message)
     }
 
@@ -159,14 +175,8 @@ impl Database {
             .set(content.eq(content.concat(&*content_update)))
             .execute(&mut self.connection)
             .await?;
-        {
-            let message_update = OllamaMessage {
-                content: content_update,
-                role: Role::Assistant,
-            };
-            self.notifier
-                .notify(NotifierMessage::UpdateMessage(message_update));
-        }
+        self.notifier
+            .notify(NotifierMessage::UpdateMessage(content_update));
         Ok(())
     }
 }

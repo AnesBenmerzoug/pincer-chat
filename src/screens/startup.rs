@@ -214,7 +214,7 @@ impl AsyncComponent for StartupScreen {
             }
             StartupScreenInputMsg::RunDatabaseMigrations => {
                 tracing::info!("Running database migrations");
-                let mut chat_history = self.chat_history.lock().await;
+                let chat_history = self.chat_history.lock().await;
                 match chat_history.run_migrations().await {
                     Ok(_) => {
                         tracing::info!("Database migrations successful");
