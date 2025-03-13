@@ -9,6 +9,7 @@ use crate::assistant::database::models::Thread;
 
 #[derive(Debug)]
 pub struct ThreadListContainerComponent {
+    current_position: u32,
     list_view_wrapper: TypedListView<ThreadListItem, gtk::SingleSelection>,
 }
 
@@ -17,12 +18,14 @@ pub enum ThreadListContainerInputMsg {
     SelectThread(u32),
     CreateNewThread,
     AddThread(Thread),
+    DeleteThread,
 }
 
 #[derive(Debug)]
 pub enum ThreadListContainerOutputMsg {
     CreateNewThread,
     GetThreadMessages(i64),
+    DeleteThread(i64),
 }
 
 #[relm4::component(async, pub)]
@@ -50,7 +53,12 @@ impl AsyncComponent for ThreadListContainerComponent {
                 gtk::Button {
                     set_icon_name: "list-add-symbolic",
                     connect_clicked => ThreadListContainerInputMsg::CreateNewThread,
-                }
+                },
+
+                gtk::Button {
+                    set_icon_name: "edit-delete-symbolic",
+                    connect_clicked => ThreadListContainerInputMsg::DeleteThread,
+                },
             },
 
             #[name = "scrolled_window"]
@@ -63,6 +71,7 @@ impl AsyncComponent for ThreadListContainerComponent {
                 #[local_ref]
                 thread_list -> gtk::ListView {
                     set_margin_all: 5,
+                    set_single_click_activate: true,
 
                     connect_activate[sender] => move |_, position| {
                         sender.input(ThreadListContainerInputMsg::SelectThread(position))
@@ -88,7 +97,7 @@ impl AsyncComponent for ThreadListContainerComponent {
             })
             .collect::<Vec<_>>();
 
-        let model = ThreadListContainerComponent { list_view_wrapper };
+        let model = ThreadListContainerComponent { current_position: 0, list_view_wrapper };
 
         let thread_list = &model.list_view_wrapper.view;
 
@@ -110,6 +119,7 @@ impl AsyncComponent for ThreadListContainerComponent {
                     .emit(ThreadListContainerOutputMsg::CreateNewThread);
             }
             ThreadListContainerInputMsg::SelectThread(position) => {
+                self.current_position = position;
                 let thread_list_item = self
                     .list_view_wrapper
                     .get(position)
@@ -119,16 +129,23 @@ impl AsyncComponent for ThreadListContainerComponent {
                     .output_sender()
                     .emit(ThreadListContainerOutputMsg::GetThreadMessages(thread_id));
             }
-            /*
-            ThreadListContainerInputMsg::DeleteThread(thread_id) => {
+            ThreadListContainerInputMsg::DeleteThread => {
+                let thread_list_item = self
+                    .list_view_wrapper
+                    .get(self.current_position)
+                    .expect("Thread item at {self.current_position} should exist");
+                let thread_id = thread_list_item.borrow().thread_id;
                 sender
                     .output_sender()
                     .emit(ThreadListContainerOutputMsg::DeleteThread(thread_id));
-                self.list_view_wrapper.remove(position);
-            }*/
+                self.list_view_wrapper.remove(self.current_position);
+            }
             ThreadListContainerInputMsg::AddThread(thread) => {
-                self.list_view_wrapper
-                    .insert_sorted(ThreadListItem::new(thread), ThreadListItem::reverse_cmp);
+                let thread_list_item = ThreadListItem::new(thread);
+                let position = self
+                    .list_view_wrapper
+                    .insert_sorted(thread_list_item, ThreadListItem::reverse_cmp);
+                let value = self.list_view_wrapper.get(position).unwrap();
             }
         }
     }
@@ -179,23 +196,35 @@ impl RelmListItem for ThreadListItem {
     fn setup(_item: &gtk::ListItem) -> (Self::Root, Self::Widgets) {
         relm4::view! {
             root = gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
+                set_orientation: gtk::Orientation::Horizontal,
 
-                #[name = "title"]
-                gtk::Label,
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_hexpand: true,
+                    set_halign: gtk::Align::Fill,
 
-                #[name = "timestamp"]
-                gtk::Label,
+                    #[name = "title"]
+                    gtk::Label,
+
+                    #[name = "timestamp"]
+                    gtk::Label,
+                },
             }
         }
 
-        let widgets = Self::Widgets { title, timestamp };
+        let widgets = Self::Widgets {
+            title,
+            timestamp,
+        };
 
         (root, widgets)
     }
 
     fn bind(&mut self, widgets: &mut Self::Widgets, _: &mut Self::Root) {
-        let Self::Widgets { title, timestamp } = widgets;
+        let Self::Widgets {
+            title,
+            timestamp,
+        } = widgets;
 
         title.set_label(&*self.title);
         timestamp.set_label(&*self.last_updated_at.format("%d %B %Y at %R").to_string());

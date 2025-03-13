@@ -47,12 +47,13 @@ impl Default for AssistantOptions {
 
 #[derive(Debug)]
 pub enum ChatScreenInputMsg {
-    SelectModel(String),
     CreateNewThread,
     GetThreadMessages(i64),
     SubmitUserInput(String),
+    DeleteThread(i64),
     AssistantAnswer,
     // Assistant Parameters
+    SelectModel(String),
     Temperature(f64),
     TopK(u64),
     TopP(f64),
@@ -288,6 +289,9 @@ impl AsyncComponent for ChatScreen {
                 ThreadListContainerOutputMsg::GetThreadMessages(thread_id) => {
                     ChatScreenInputMsg::GetThreadMessages(thread_id)
                 }
+                ThreadListContainerOutputMsg::DeleteThread(thread_id) => {
+                    ChatScreenInputMsg::DeleteThread(thread_id)
+                }
             });
 
         let mut model = ChatScreen {
@@ -439,14 +443,20 @@ impl AsyncComponent for ChatScreen {
             }
             ChatScreenInputMsg::CreateNewThread => {
                 tracing::info!("Creating new thread");
-                {
-                    let mut chat_history = self.chat_history.lock().await;
-                    let thread = chat_history
-                        .create_thread("New Thread")
-                        .await
-                        .expect("Creating new thread should work");
-                    self.current_thread_id = thread.id;
-                }
+                let mut chat_history = self.chat_history.lock().await;
+                let thread = chat_history
+                    .create_thread("New Thread")
+                    .await
+                    .expect("Creating new thread should work");
+                self.current_thread_id = thread.id;
+            }
+            ChatScreenInputMsg::DeleteThread(thread_id) => {
+                tracing::info!("Deleting thread with id {thread_id}");
+                let mut chat_history = self.chat_history.lock().await;
+                chat_history
+                    .delete_thread(thread_id)
+                    .await
+                    .expect("Deleting thread should work");
             }
             ChatScreenInputMsg::SubmitUserInput(user_input) => {
                 tracing::info!("Submitting user input");
