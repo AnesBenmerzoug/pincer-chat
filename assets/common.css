@@ -2,11 +2,15 @@
 .user_message,
 .assistant_message,
 .tool_message {
-    margin: 0 1rem 0 1rem;
     padding: 0.5rem;
     padding-bottom: 1rem;
     border-radius: 10px;
     box-shadow: rgba(0, 0, 0, 0.15) 1.95px 1.95px 2.6px;
+}
+
+.thread_list_item {
+    padding: 0.5rem;
+    border-radius: 10px;
 }
 
 .button {

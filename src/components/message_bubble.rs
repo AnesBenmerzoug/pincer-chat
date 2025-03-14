@@ -163,9 +163,7 @@ impl AsyncFactoryComponent for MessageBubbleComponent {
                 set_text: &*self.timestamp,
             },
             gtk::TextView {
-                set_height_request: 40,
-
-                //#[watch]
+                #[watch]
                 set_buffer: Some(&self.buffer),
                 set_focusable: false,
                 set_editable: false,

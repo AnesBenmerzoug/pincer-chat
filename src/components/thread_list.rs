@@ -42,6 +42,7 @@ impl AsyncComponent for ThreadListContainerComponent {
             set_orientation: gtk::Orientation::Vertical,
             set_margin_all: 5,
             set_spacing: 5,
+            set_css_classes: &["thread_list"],
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
@@ -59,11 +60,13 @@ impl AsyncComponent for ThreadListContainerComponent {
 
                 gtk::Button {
                     set_icon_name: "list-add-symbolic",
+                    set_css_classes: &["button", "new_thread_button"],
                     connect_clicked => ThreadListContainerInputMsg::CreateNewThread,
                 },
 
                 gtk::Button {
                     set_icon_name: "edit-delete-symbolic",
+                    set_css_classes: &["button", "delete_thread_button"],
                     connect_clicked => ThreadListContainerInputMsg::DeleteThread,
                 },
             },
@@ -158,7 +161,6 @@ impl AsyncComponent for ThreadListContainerComponent {
                     thread_list_item.title.contains(&*filter_text)
                 });
             }
-
             ThreadListContainerInputMsg::SelectThread(position) => {
                 self.current_position = position;
                 let thread_list_item = self
@@ -234,6 +236,7 @@ impl RelmListItem for ThreadListItem {
         relm4::view! {
             root = gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
+                set_css_classes: &["thread_list_item"],
 
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,

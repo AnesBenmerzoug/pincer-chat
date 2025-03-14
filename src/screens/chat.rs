@@ -97,7 +97,7 @@ impl AsyncComponent for ChatScreen {
                 set_valign: gtk::Align::Fill,
                 set_margin_all: 5,
                 set_spacing: 5,
-                set_css_classes: &["main_container"],
+                set_css_classes: &["thread_list"],
 
                 #[local_ref]
                 thread_list -> gtk::Box {},
