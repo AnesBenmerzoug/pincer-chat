@@ -178,8 +178,10 @@ impl AsyncComponent for ThreadListContainerComponent {
                     .list_view_wrapper
                     .get_visible(0)
                     .expect("First item should exist");
-                //let mut thread_list_item = thread_list_item.borrow_mut();
-                //thread_list_item.title = thread.title;
+                {
+                    let mut thread_list_item = thread_list_item.borrow_mut();
+                    thread_list_item.title = thread.title;
+                }
                 self.list_view_wrapper.pop_filter();
             }
         }
