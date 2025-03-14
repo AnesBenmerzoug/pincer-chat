@@ -18,6 +18,7 @@ pub enum ThreadListContainerInputMsg {
     SelectThread(u32),
     CreateNewThread,
     AddThread(Thread),
+    FilterThreads(String),
     DeleteThread,
 }
 
@@ -48,6 +49,11 @@ impl AsyncComponent for ThreadListContainerComponent {
 
                 gtk::SearchEntry {
                     set_hexpand: true,
+
+                    connect_search_changed[sender] => move |search| {
+                        let text = search.text().into();
+                        sender.input(ThreadListContainerInputMsg::FilterThreads(text));
+                    }
                 },
 
                 gtk::Button {
@@ -97,7 +103,10 @@ impl AsyncComponent for ThreadListContainerComponent {
             })
             .collect::<Vec<_>>();
 
-        let model = ThreadListContainerComponent { current_position: 0, list_view_wrapper };
+        let model = ThreadListContainerComponent {
+            current_position: 0,
+            list_view_wrapper,
+        };
 
         let thread_list = &model.list_view_wrapper.view;
 
@@ -118,17 +127,6 @@ impl AsyncComponent for ThreadListContainerComponent {
                     .output_sender()
                     .emit(ThreadListContainerOutputMsg::CreateNewThread);
             }
-            ThreadListContainerInputMsg::SelectThread(position) => {
-                self.current_position = position;
-                let thread_list_item = self
-                    .list_view_wrapper
-                    .get(position)
-                    .expect("Getting thread item at position should work");
-                let thread_id = thread_list_item.borrow().thread_id;
-                sender
-                    .output_sender()
-                    .emit(ThreadListContainerOutputMsg::GetThreadMessages(thread_id));
-            }
             ThreadListContainerInputMsg::DeleteThread => {
                 let thread_list_item = self
                     .list_view_wrapper
@@ -146,6 +144,22 @@ impl AsyncComponent for ThreadListContainerComponent {
                     .list_view_wrapper
                     .insert_sorted(thread_list_item, ThreadListItem::reverse_cmp);
                 let value = self.list_view_wrapper.get(position).unwrap();
+            }
+            ThreadListContainerInputMsg::FilterThreads(filter_text) => {
+                self.list_view_wrapper.pop_filter();
+                self.list_view_wrapper.add_filter(move |thread_list_item| thread_list_item.title.contains(&*filter_text));
+            }
+
+            ThreadListContainerInputMsg::SelectThread(position) => {
+                self.current_position = position;
+                let thread_list_item = self
+                    .list_view_wrapper
+                    .get(position)
+                    .expect("Getting thread item at position should work");
+                let thread_id = thread_list_item.borrow().thread_id;
+                sender
+                    .output_sender()
+                    .emit(ThreadListContainerOutputMsg::GetThreadMessages(thread_id));
             }
         }
     }
@@ -212,19 +226,13 @@ impl RelmListItem for ThreadListItem {
             }
         }
 
-        let widgets = Self::Widgets {
-            title,
-            timestamp,
-        };
+        let widgets = Self::Widgets { title, timestamp };
 
         (root, widgets)
     }
 
     fn bind(&mut self, widgets: &mut Self::Widgets, _: &mut Self::Root) {
-        let Self::Widgets {
-            title,
-            timestamp,
-        } = widgets;
+        let Self::Widgets { title, timestamp } = widgets;
 
         title.set_label(&*self.title);
         timestamp.set_label(&*self.last_updated_at.format("%d %B %Y at %R").to_string());
