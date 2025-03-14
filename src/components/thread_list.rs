@@ -20,6 +20,7 @@ pub enum ThreadListContainerInputMsg {
     AddThread(Thread),
     FilterThreads(String),
     DeleteThread,
+    UpdateThread(Thread),
 }
 
 #[derive(Debug)]
@@ -110,6 +111,10 @@ impl AsyncComponent for ThreadListContainerComponent {
 
         let thread_list = &model.list_view_wrapper.view;
 
+        sender
+            .input_sender()
+            .emit(ThreadListContainerInputMsg::SelectThread(0));
+
         let widgets = view_output!();
 
         AsyncComponentParts { model, widgets }
@@ -143,11 +148,15 @@ impl AsyncComponent for ThreadListContainerComponent {
                 let position = self
                     .list_view_wrapper
                     .insert_sorted(thread_list_item, ThreadListItem::reverse_cmp);
-                let value = self.list_view_wrapper.get(position).unwrap();
+                sender
+                    .input_sender()
+                    .emit(ThreadListContainerInputMsg::SelectThread(position))
             }
             ThreadListContainerInputMsg::FilterThreads(filter_text) => {
                 self.list_view_wrapper.pop_filter();
-                self.list_view_wrapper.add_filter(move |thread_list_item| thread_list_item.title.contains(&*filter_text));
+                self.list_view_wrapper.add_filter(move |thread_list_item| {
+                    thread_list_item.title.contains(&*filter_text)
+                });
             }
 
             ThreadListContainerInputMsg::SelectThread(position) => {
@@ -160,6 +169,18 @@ impl AsyncComponent for ThreadListContainerComponent {
                 sender
                     .output_sender()
                     .emit(ThreadListContainerOutputMsg::GetThreadMessages(thread_id));
+            }
+            ThreadListContainerInputMsg::UpdateThread(thread) => {
+                let thread_id = thread.id;
+                self.list_view_wrapper
+                    .add_filter(move |thread_list_item| thread_list_item.thread_id == thread_id);
+                let thread_list_item = self
+                    .list_view_wrapper
+                    .get_visible(0)
+                    .expect("First item should exist");
+                //let mut thread_list_item = thread_list_item.borrow_mut();
+                //thread_list_item.title = thread.title;
+                self.list_view_wrapper.pop_filter();
             }
         }
     }

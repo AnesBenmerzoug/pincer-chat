@@ -14,6 +14,7 @@ use home::home_dir;
 
 use super::notification::{Notifier, NotifierMessage};
 use super::ollama::types::{Message as OllamaMessage, Role};
+use super::prompts::ASSISTANT_SYSTEM_PROMPT;
 
 use self::models::{Message, NewMessage, NewThread, Thread};
 use self::schema::{messages, threads};
@@ -89,10 +90,7 @@ impl Database {
         // System Message
         let system_message = NewMessage {
             thread_id: inserted_thread.id,
-            content: "You are a helpful assistant. You reply to user queries in a helpful manner.\n \
-            You should give concise responses to very simple questions, but provide thorough responses to more complex and open-ended questions. \
-            You help with writing, analysis, question answering, math, coding, and all sorts of other tasks. \
-            You use markdown formatting for your replies.",
+            content: ASSISTANT_SYSTEM_PROMPT,
             role: Role::System.into(),
         };
 
@@ -107,10 +105,22 @@ impl Database {
         Ok(inserted_thread)
     }
 
-    pub async fn delete_thread(&mut self, thread_id: i64) -> Result<()> {
+    pub async fn update_thread_title(&mut self, id: i64, title: String) -> Result<()> {
+        use self::schema::threads::dsl;
+
+        let updated_thread = diesel::update(dsl::threads.find(id))
+            .set(dsl::title.eq(&*title))
+            .get_result(&mut self.connection)
+            .await?;
+        self.notifier
+            .notify(NotifierMessage::UpdateThread(updated_thread));
+        Ok(())
+    }
+
+    pub async fn delete_thread(&mut self, id: i64) -> Result<()> {
         use self::schema::threads::dsl::*;
 
-        diesel::delete(threads.filter(id.eq(thread_id)))
+        diesel::delete(threads.filter(id.eq(id)))
             .execute(&mut self.connection)
             .await?;
         Ok(())

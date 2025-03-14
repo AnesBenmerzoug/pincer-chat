@@ -8,7 +8,9 @@ use tracing;
 
 use crate::assistant::ollama::types::{Message, Role};
 use crate::assistant::{database::Database, notification::NotifierMessage, Assistant};
-use crate::components::chat_input::{ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg};
+use crate::components::chat_input::{
+    self, ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg,
+};
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
 };
@@ -268,7 +270,7 @@ impl AsyncComponent for ChatScreen {
         };
 
         let message_bubbles = MessageBubbleContainerComponent::builder()
-            .launch(())
+            .launch(messages)
             .detach();
 
         let chat_input =
@@ -331,6 +333,9 @@ impl AsyncComponent for ChatScreen {
                 |notifier_message: NotifierMessage| match notifier_message {
                     NotifierMessage::NewThread(thread) => {
                         Some(ThreadListContainerInputMsg::AddThread(thread))
+                    }
+                    NotifierMessage::UpdateThread(thread) => {
+                        Some(ThreadListContainerInputMsg::UpdateThread(thread))
                     }
                     _ => None,
                 },
@@ -496,6 +501,20 @@ impl AsyncComponent for ChatScreen {
                         })
                         .collect()
                 };
+
+                if messages.len() == 2 {
+                    tracing::info!("Generating thread title for thread after first user message");
+                    let mut assistant = self.assistant.lock().await;
+                    let thread_title_message = assistant
+                        .generate_thread_title(messages[1].clone())
+                        .await
+                        .unwrap();
+                    let mut chat_history = chat_history.lock().await;
+                    chat_history
+                        .update_thread_title(self.current_thread_id, thread_title_message.content)
+                        .await
+                        .expect("Updating thread title should work");
+                }
 
                 let assistant_message_id = {
                     let mut chat_history = chat_history.lock().await;

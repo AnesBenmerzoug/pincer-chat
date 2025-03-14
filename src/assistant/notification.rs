@@ -13,6 +13,7 @@ pub enum NotifierMessage {
     NewMessage(Message),
     UpdateMessage(String),
     NewThread(Thread),
+    UpdateThread(Thread),
     GetThreadMessages(Vec<Message>),
 }
 

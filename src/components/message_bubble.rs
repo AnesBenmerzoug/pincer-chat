@@ -25,7 +25,7 @@ pub enum MessageBubbleContainerInputMsg {
 
 #[relm4::component(async, pub)]
 impl AsyncComponent for MessageBubbleContainerComponent {
-    type Init = ();
+    type Init = Vec<Message>;
     type Input = MessageBubbleContainerInputMsg;
     type Output = ();
     type CommandOutput = ();
@@ -51,9 +51,9 @@ impl AsyncComponent for MessageBubbleContainerComponent {
     }
 
     async fn init(
-        _: Self::Init,
+        messages: Self::Init,
         root: Self::Root,
-        _sender: AsyncComponentSender<Self>,
+        sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         let factory_box = gtk::Box::default();
 
@@ -62,6 +62,10 @@ impl AsyncComponent for MessageBubbleContainerComponent {
             .detach();
 
         let model = MessageBubbleContainerComponent { message_bubbles };
+
+        sender
+            .input_sender()
+            .emit(MessageBubbleContainerInputMsg::RefreshMessages(messages));
 
         let widgets = view_output!();
 

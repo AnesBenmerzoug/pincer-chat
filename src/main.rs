@@ -10,10 +10,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing;
 
-use crate::assistant::{
-    database::Database, ollama::types::Message, Assistant, AssistantParameters,
-};
-use crate::screens::{
+use assistant::{database::Database, ollama::types::Message, Assistant, AssistantParameters};
+use screens::{
     chat::ChatScreen,
     startup::{StartupScreen, StartupScreenOutputMsg},
 };

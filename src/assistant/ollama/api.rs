@@ -68,11 +68,12 @@ pub async fn pull_model(model: String) -> Result<impl Stream<Item = Result<PullM
 pub async fn chat(
     model: String,
     messages: Vec<Message>,
+    stream: bool,
 ) -> Result<impl Stream<Item = Result<ChatResponse>>> {
     let body = ChatRequest {
         model: model.clone(),
         messages,
-        stream: true,
+        stream,
     };
     let serialized_body = serde_json::to_string(&body)?;
 
