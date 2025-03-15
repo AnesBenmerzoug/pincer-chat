@@ -1,0 +1,3 @@
+DROP TRIGGER thread_last_updated_at_after_thread_update;
+
+DROP TRIGGER thread_last_updated_at_after_new_message;
