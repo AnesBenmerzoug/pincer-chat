@@ -90,6 +90,11 @@ impl AsyncComponent for ChatScreen {
 
     view! {
         gtk::Paned {
+            set_vexpand: true,
+            set_hexpand: true,
+            set_valign: gtk::Align::Fill,
+            set_halign: gtk::Align::Fill,
+
             #[wrap(Some)]
             set_start_child = &gtk::Box{
                 set_vexpand: true,
@@ -108,7 +113,10 @@ impl AsyncComponent for ChatScreen {
                 set_orientation: gtk::Orientation::Vertical,
                 set_margin_all: 5,
                 set_spacing: 5,
-                set_css_classes: &["main_container"],
+                set_vexpand: true,
+                set_hexpand: true,
+                set_valign: gtk::Align::Fill,
+                set_halign: gtk::Align::Fill,
 
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
@@ -480,6 +488,8 @@ impl AsyncComponent for ChatScreen {
                 sender
                     .input_sender()
                     .emit(ChatScreenInputMsg::AssistantAnswer);
+
+                self.thread_list.widget().set_sensitive(false);
             }
             ChatScreenInputMsg::AssistantAnswer => {
                 let thread_id = self.current_thread_id;
@@ -578,10 +588,14 @@ impl AsyncComponent for ChatScreen {
     ) {
         match message {
             ChatScreenCmdMsg::PullModelEnd => {
-                self.chat_input.sender().emit(ChatInputInputMsg::Enable);
+                // self.chat_input.sender().emit(ChatInputInputMsg::Enable);
+                self.thread_list.widget().set_sensitive(true);
+                self.chat_input.widget().set_sensitive(true);
             }
             ChatScreenCmdMsg::AnswerEnd => {
-                self.chat_input.sender().emit(ChatInputInputMsg::Enable);
+                // self.chat_input.sender().emit(ChatInputInputMsg::Enable);
+                self.thread_list.widget().set_sensitive(true);
+                self.chat_input.widget().set_sensitive(true);
             }
         }
     }

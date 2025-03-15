@@ -62,6 +62,7 @@ impl AsyncComponent for App {
                 set_valign: gtk::Align::Fill,
                 set_width_request: 800,
                 set_height_request: 600,
+                set_css_classes: &["main_container"],
             }
         },
     }

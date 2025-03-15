@@ -63,8 +63,17 @@ impl Database {
         let connection = Self::connect(&*self.database_url.clone()).await?;
         let mut async_wrapper: AsyncConnectionWrapper<SyncConnectionWrapper<SqliteConnection>> =
             AsyncConnectionWrapper::from(connection);
-        tokio::task::spawn_blocking(move || {
-            async_wrapper.run_pending_migrations(MIGRATIONS).unwrap();
+        let _ = tokio::task::spawn_blocking(move || -> Result<()> {
+            match async_wrapper.run_pending_migrations(MIGRATIONS) {
+                Ok(_) => {
+                    tracing::info!("Successfully applied migraitons");
+                    Ok(())
+                }
+                Err(error) => {
+                    tracing::error!("Applying migrations failed because of: {error}");
+                    Err(anyhow!("Applying migrations failed because of: {error}"))
+                }
+            }
         })
         .await?;
         Ok(())

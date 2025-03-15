@@ -22,8 +22,6 @@ pub enum StartupScreenState {
     CheckOllama,
     OllamaNotRunning,
     ListModels,
-    CheckingDatabase,
-    DatabaseUnreachable,
     RunningDatabaseMigrations,
     DatabaseMigrationsFailed,
     End,
@@ -36,8 +34,6 @@ pub enum StartupScreenInputMsg {
     OllamaNotRunning,
     Retry,
     ListModels,
-    CheckDatabase,
-    DatabaseUnreachable,
     RunDatabaseMigrations,
     DatabaseMigrationsFailed,
     End,
@@ -188,29 +184,8 @@ impl AsyncComponent for StartupScreen {
                 assistant.set_model(model);
                 sender
                     .input_sender()
-                    .emit(StartupScreenInputMsg::CheckDatabase);
-                self.state = StartupScreenState::CheckingDatabase;
-            }
-            StartupScreenInputMsg::CheckDatabase => {
-                tracing::info!("Checking chat history database");
-                let mut chat_history = self.chat_history.lock().await;
-                match chat_history.is_running().await {
-                    true => {
-                        sender
-                            .input_sender()
-                            .emit(StartupScreenInputMsg::RunDatabaseMigrations);
-                        self.state = StartupScreenState::RunningDatabaseMigrations;
-                    }
-                    false => {
-                        sender
-                            .input_sender()
-                            .emit(StartupScreenInputMsg::DatabaseUnreachable);
-                        self.state = StartupScreenState::DatabaseUnreachable;
-                    }
-                }
-            }
-            StartupScreenInputMsg::DatabaseUnreachable => {
-                tracing::info!("Database unreachable");
+                    .emit(StartupScreenInputMsg::RunDatabaseMigrations);
+                self.state = StartupScreenState::RunningDatabaseMigrations;
             }
             StartupScreenInputMsg::RunDatabaseMigrations => {
                 tracing::info!("Running database migrations");
@@ -229,7 +204,6 @@ impl AsyncComponent for StartupScreen {
                         self.state = StartupScreenState::DatabaseMigrationsFailed;
                     }
                 }
-                sender.input_sender().emit(StartupScreenInputMsg::End);
             }
             StartupScreenInputMsg::DatabaseMigrationsFailed => {
                 tracing::info!("Database migrations failed");
@@ -259,12 +233,6 @@ impl AsyncComponent for StartupScreen {
             }
             StartupScreenState::ListModels => {
                 widgets.status_label.set_label("Listing local models...");
-            }
-            StartupScreenState::CheckingDatabase => {
-                widgets.status_label.set_label("Checking database...");
-            }
-            StartupScreenState::DatabaseUnreachable => {
-                widgets.status_label.set_label("Database unreachable :(");
             }
             StartupScreenState::RunningDatabaseMigrations => {
                 widgets.status_label.set_label("Running migrations...");
