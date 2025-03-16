@@ -1,3 +1,4 @@
+mod assets;
 mod assistant;
 mod components;
 mod screens;
@@ -16,7 +17,7 @@ use screens::{
     startup::{StartupScreen, StartupScreenOutputMsg},
 };
 
-const APP_ID: &str = "org.relm4.RustyLocalAIAssistant";
+const APP_ID: &str = "org.relm4.PincerChat";
 
 #[derive(Debug)]
 struct App {

@@ -170,7 +170,8 @@ impl AsyncComponent for ChatScreen {
                                         gtk::Label {
                                             set_label: "Temperature",
                                         },
-                                        gtk::SpinButton::with_range(0.0, 1.0, 0.1) {
+                                        gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.1) {
+                                            set_halign: gtk::Align::Fill,
                                             #[watch]
                                             set_value: model.options.temperature,
 

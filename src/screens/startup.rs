@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 use tracing;
 
+use crate::assets::LOGO_SVG;
 use crate::assistant::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
 use crate::assistant::{database::Database, Assistant, AssistantParameters};
 
@@ -68,15 +69,32 @@ impl AsyncComponent for StartupScreen {
                 set_halign: gtk::Align::Center,
                 set_valign: gtk::Align::Center,
 
-                #[name = "spinner"]
-                gtk::Spinner {
-                    set_spinning: true,
-                    set_margin_bottom: 10,
+                #[name = "logo"]
+                gtk::Image {
+                    set_paintable: Some(&*LOGO_SVG),
+                    set_pixel_size: 196,
                 },
-                #[name = "status_label"]
+
                 gtk::Label {
-                    set_label: "Starting up application...",
+                    set_label: "Welcome to PincerChat",
+                    set_margin_bottom: 30,
                 },
+
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 10,
+
+                    #[name = "spinner"]
+                    gtk::Spinner {
+                        set_spinning: true,
+                    },
+                    #[name = "status_label"]
+                    gtk::Label {
+                        set_halign: gtk::Align::Fill,
+                        set_label: "Starting up application...",
+                    },
+                },
+
                 #[name = "retry_button"]
                 gtk::Button {
                     set_hexpand: false,
@@ -184,7 +202,7 @@ impl AsyncComponent for StartupScreen {
                 assistant.set_model(model);
                 sender
                     .input_sender()
-                    .emit(StartupScreenInputMsg::RunDatabaseMigrations);
+                    .emit(StartupScreenInputMsg::DatabaseMigrationsFailed);
                 self.state = StartupScreenState::RunningDatabaseMigrations;
             }
             StartupScreenInputMsg::RunDatabaseMigrations => {
