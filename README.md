@@ -1,20 +1,26 @@
-# Rusty local AI assistant
+<div align="center">
 
-This repository contains the code and stylesheets for Rusty the local AI Assistant.
-An OS-agnostic desktop GUI for locally interacting with LLMs served with [Ollama](https://ollama.com/)
+# Pincer Chat
+
+<img src="assets/logo.svg" width="200px"/>
+
+<em>PincerChat, a desktop GUI for interacting with local LLMs served with <a href=https://ollama.com/>Ollama</a></em>
+
+</div>
 
 ## Getting Started
 
 - Download and install [Ollama](https://ollama.com/download)
 
-- Start Rusty the local AI Assistant.
+- Start ollama server:
 
-## Development
+  ```shell
+  ollama serve
+  ```
 
-```shell
-cargo run
-```
+- Start the application:
 
-```shell
-cargo run --release
-```
+  ```shell
+  cargo install --git https://github.com/AnesBenmerzoug/pincer-chat.git
+  ```
+
