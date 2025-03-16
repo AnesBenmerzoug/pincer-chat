@@ -1,61 +1,19 @@
-.main_container {
-    background-color: rgb(255, 252, 240);
-}
+@define-color main_bg_color rgb(255, 252, 240);
+@define-color secondary_bg_color rgb(242, 240, 229);
+@define-color thread_list_item_bg_color rgba(36, 131, 123, 0.5);
+@define-color button_bg_color rgba(94, 64, 157, 0.7);
+@define-color button_hover_bg_color rgb(94, 64, 157);
+@define-color add_button_bg_color rgba(102, 128, 11, 0.7);
+@define-color add_button_hover_bg_color rgb(102, 128, 11);
+@define-color remove_button_bg_color rgba(175, 48, 41, 0.7);
+@define-color remove_button_hover_bg_color rgb(175, 48, 41);
 
-.thread_list {
-    background-color: rgb(242, 240, 229);
-}
+@define-color system_message_bg_color rgba(188, 82, 21, 0.2);
+@define-color user_message_bg_color rgba(36, 131, 123, 0.2);
+@define-color assistant_message_bg_color rgba(102, 128, 11, 0.2);
+@define-color tool_message_bg_color rgba(160, 47, 111, 0.2);
+@define-color message_shadow_color rgba(206, 205, 195, 0.5);
 
-.system_message,
-.user_message,
-.assistant_message,
-.tool_message {
-    background-color: rgb(242, 240, 229);
-    color: rgb(16, 15, 15);
-    box-shadow: rgba(206, 205, 195, 0.5) 0.2rem 0.2rem 0.1rem;
-}
-
-.system_message {
-    background-color: rgba(188, 82, 21, 0.2);
-}
-
-.user_message {
-    background-color: rgba(36, 131, 123, 0.2);
-}
-
-.assistant_message {
-    background-color: rgba(102, 128, 11, 0.2);
-}
-
-.tool_message {
-    background-color: rgba(160, 47, 111, 0.2);
-}
-
-.thread_list_item {
-    background-color: rgba(36, 131, 123, 0.5);
-}
-
-.button {
-    background-color: rgba(94, 64, 157, 0.7);
-    color: #FFFFFF;
-}
-
-.button:hover {
-    background-color: rgb(94, 64, 157);
-}
-
-.new_thread_button {
-    background-color: rgba(102, 128, 11, 0.7);
-}
-
-.new_thread_button:hover {
-    background-color: (102, 128, 11);
-}
-
-.delete_thread_button {
-    background-color: rgba(175, 48, 41, 0.7);
-}
-
-.delete_thread_button:hover {
-    background-color: rgb(175, 48, 41);
-}
+@define-color primary_text_color rgb(16, 15, 15);
+@define-color secondary_text_color rgb(183, 181, 172);
+@define-color button_text_color rgb(255, 255, 255);
