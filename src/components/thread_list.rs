@@ -77,11 +77,13 @@ impl AsyncComponent for ThreadListContainerComponent {
                 set_hexpand: true,
                 set_vexpand: true,
                 set_valign: gtk::Align::Fill,
+                set_css_classes: &["thread_list"],
 
                 #[local_ref]
                 thread_list -> gtk::ListView {
                     set_margin_all: 5,
                     set_single_click_activate: true,
+                    set_css_classes: &["thread_list"],
 
                     connect_activate[sender] => move |_, position| {
                         sender.input(ThreadListContainerInputMsg::SelectThread(position))

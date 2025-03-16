@@ -73,6 +73,7 @@ impl AsyncComponent for StartupScreen {
                 gtk::Image {
                     set_paintable: Some(&*LOGO_SVG),
                     set_pixel_size: 196,
+                    set_css_classes: &["logo"],
                 },
 
                 gtk::Label {
@@ -202,7 +203,7 @@ impl AsyncComponent for StartupScreen {
                 assistant.set_model(model);
                 sender
                     .input_sender()
-                    .emit(StartupScreenInputMsg::DatabaseMigrationsFailed);
+                    .emit(StartupScreenInputMsg::RunDatabaseMigrations);
                 self.state = StartupScreenState::RunningDatabaseMigrations;
             }
             StartupScreenInputMsg::RunDatabaseMigrations => {
