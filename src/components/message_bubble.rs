@@ -1,4 +1,6 @@
-use anyhow::{anyhow, Result};
+use std::future::Future;
+
+use anyhow::Result;
 use chrono::prelude::*;
 use gtk::prelude::*;
 use relm4::component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender};
@@ -6,7 +8,6 @@ use relm4::factory::{AsyncFactoryComponent, AsyncFactoryVecDeque};
 use relm4::loading_widgets::LoadingWidgets;
 use relm4::prelude::*;
 use relm4::view;
-use std::future::Future;
 
 use crate::assistant::database::models::Message;
 use crate::assistant::ollama::types::Role;
@@ -127,7 +128,22 @@ pub struct MessageBubbleComponent {
 impl MessageBubbleComponent {
     pub async fn new(message: Message) -> Self {
         let buffer = gtk::TextBuffer::builder().text(&*message.content).build();
-        let timestamp = Local::now().format("%d %B %Y at %R").to_string();
+        let current_time = chrono::offset::Local::now().naive_local();
+        let creation_time = message.created_at;
+        let time_difference = current_time - creation_time;
+        let absolute_timestamp = message.created_at.format("%d %B %Y at %R").to_string();
+        let timestamp: String;
+        if time_difference.num_minutes() == 0 {
+            timestamp = format!("{} second(s) ago", time_difference.num_seconds());
+        } else if time_difference.num_hours() == 0 {
+            timestamp = format!("{} minute(s) ago", time_difference.num_minutes());
+        } else if time_difference.num_days() == 0 {
+            timestamp = format!("{} hour(s) ago", time_difference.num_hours());
+        } else if time_difference.num_weeks() <= 1 {
+            timestamp = format!("{} ( {} day(s) ago )", absolute_timestamp, time_difference.num_days());
+        } else {
+            timestamp = format!("{} ({} week(s) ago )", absolute_timestamp, time_difference.num_weeks());
+        }
         let role =
             Role::try_from(message.role).expect("Converting role from string to enum should work");
         Self {
