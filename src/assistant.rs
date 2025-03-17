@@ -4,7 +4,7 @@ pub mod ollama;
 pub mod prompts;
 
 use anyhow::Result;
-use database::Database;
+use database::schema::messages::star;
 use futures::Stream;
 use futures::StreamExt;
 
@@ -106,7 +106,15 @@ impl Assistant {
         Ok(pull_model_stream)
     }
 
-    pub async fn generate_thread_title(&mut self, message: OllamaMessage) -> Result<OllamaMessage> {
+    fn remove_think_tags(&self, text: String) -> String {
+        let start_index = text.find("<think>").unwrap_or(0);
+        let mut end_index = text.find("</think>").map_or(0, |v| v + "</think>".len());
+        let before_part = &text[..start_index];
+        let after_part = &text[end_index..];
+        format!("{}{}", before_part, after_part)
+    }
+
+    pub async fn generate_thread_title(&mut self, message: OllamaMessage) -> Result<String> {
         let system_message = OllamaMessage {
             content: String::from(THREAD_TITLE_PROMPT),
             role: Role::System,
@@ -117,15 +125,15 @@ impl Assistant {
         };
         let messages = vec![system_message, query_message];
         let mut message_stream = self.generate_answer(messages).await?;
-        let mut thread_title_message = OllamaMessage {
-            content: String::new(),
-            role: Role::Assistant,
-        };
+        let mut thread_title = String::new();
         while let Some(result) = message_stream.next().await {
             let message = result?;
-            thread_title_message.content += &message.content;
+            thread_title += &message.content;
         }
-        Ok(thread_title_message)
+        // Remove <think></think> tags, if there are any
+        thread_title = self.remove_think_tags(thread_title);
+        thread_title = thread_title.replace("\n", "");
+        Ok(thread_title)
     }
 
     pub async fn generate_answer(

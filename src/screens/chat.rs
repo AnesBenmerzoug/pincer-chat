@@ -516,13 +516,13 @@ impl AsyncComponent for ChatScreen {
                 if messages.len() == 2 {
                     tracing::info!("Generating thread title for thread after first user message");
                     let mut assistant = self.assistant.lock().await;
-                    let thread_title_message = assistant
+                    let thread_title = assistant
                         .generate_thread_title(messages[1].clone())
                         .await
                         .unwrap();
                     let mut chat_history = chat_history.lock().await;
                     chat_history
-                        .update_thread_title(self.current_thread_id, thread_title_message.content)
+                        .update_thread_title(self.current_thread_id, thread_title)
                         .await
                         .expect("Updating thread title should work");
                 }

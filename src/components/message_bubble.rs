@@ -140,9 +140,17 @@ impl MessageBubbleComponent {
         } else if time_difference.num_days() == 0 {
             timestamp = format!("{} hour(s) ago", time_difference.num_hours());
         } else if time_difference.num_weeks() <= 1 {
-            timestamp = format!("{} ( {} day(s) ago )", absolute_timestamp, time_difference.num_days());
+            timestamp = format!(
+                "{} ( {} day(s) ago )",
+                absolute_timestamp,
+                time_difference.num_days()
+            );
         } else {
-            timestamp = format!("{} ({} week(s) ago )", absolute_timestamp, time_difference.num_weeks());
+            timestamp = format!(
+                "{} ({} week(s) ago )",
+                absolute_timestamp,
+                time_difference.num_weeks()
+            );
         }
         let role =
             Role::try_from(message.role).expect("Converting role from string to enum should work");

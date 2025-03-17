@@ -74,7 +74,6 @@ impl AsyncComponent for ThreadListContainerComponent {
             #[name = "scrolled_window"]
             gtk::ScrolledWindow {
                 set_hscrollbar_policy: gtk::PolicyType::Never,
-                set_hexpand: true,
                 set_vexpand: true,
                 set_valign: gtk::Align::Fill,
                 set_css_classes: &["thread_list"],
@@ -246,7 +245,11 @@ impl RelmListItem for ThreadListItem {
                     set_halign: gtk::Align::Fill,
 
                     #[name = "title"]
-                    gtk::Label,
+                    gtk::Label {
+                        set_wrap: true,
+                        set_max_width_chars: 30,
+                        set_width_chars: 10,
+                    },
 
                     #[name = "timestamp"]
                     gtk::Label,
