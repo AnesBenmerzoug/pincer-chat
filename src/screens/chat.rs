@@ -1,13 +1,19 @@
 use futures::{FutureExt, StreamExt};
+
 use gtk::prelude::*;
 use relm4::component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender};
 use relm4::prelude::*;
+use relm4::SharedState;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing;
 
 use crate::assistant::ollama::types::{Message, Role};
 use crate::assistant::{database::Database, notification::NotifierMessage, Assistant};
+use crate::components::assistant_parameters::{
+    self, AssistantParametersComponent, AssistantParametersComponentWidgets,
+    AssistantParametersInputMsg, AssistantParametersOutputMsg, GenerationParameters,
+};
 use crate::components::chat_input::{
     self, ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg,
 };
@@ -22,29 +28,12 @@ use crate::components::thread_list::{
 pub struct ChatScreen {
     assistant: Arc<Mutex<Assistant>>,
     chat_history: Arc<Mutex<Database>>,
-    options: AssistantOptions,
     current_thread_id: i64,
     // Components
-    message_bubbles: AsyncController<MessageBubbleContainerComponent>,
-    chat_input: Controller<ChatInputComponent>,
+    assistant_parameters: Controller<AssistantParametersComponent>,
     thread_list: AsyncController<ThreadListContainerComponent>,
-}
-
-#[derive(Debug)]
-pub struct AssistantOptions {
-    pub temperature: f64,
-    pub top_k: u64,
-    pub top_p: f64,
-}
-
-impl Default for AssistantOptions {
-    fn default() -> Self {
-        Self {
-            temperature: 0.5,
-            top_k: 40,
-            top_p: 0.9,
-        }
-    }
+    chat_input: Controller<ChatInputComponent>,
+    message_bubbles: AsyncController<MessageBubbleContainerComponent>,
 }
 
 #[derive(Debug)]
@@ -68,16 +57,17 @@ pub enum ChatScreenCmdMsg {
     AnswerEnd,
 }
 
-#[relm4::widget_template(pub)]
-impl WidgetTemplate for ParameterSpinButton {
-    view! {
-        gtk::Box {
-            set_orientation: gtk::Orientation::Vertical,
-            set_margin_all: 5,
-            set_spacing: 5,
-            set_halign: gtk::Align::Fill,
-            set_valign: gtk::Align::Center,
-        }
+impl ChatScreen {
+    fn enable_inputs(&mut self) {
+        self.assistant_parameters.widget().set_sensitive(true);
+        self.thread_list.widget().set_sensitive(true);
+        self.chat_input.widget().set_sensitive(true);
+    }
+
+    fn disable_inputs(&mut self) {
+        self.assistant_parameters.widget().set_sensitive(false);
+        self.thread_list.widget().set_sensitive(false);
+        self.chat_input.widget().set_sensitive(false);
     }
 }
 
@@ -118,134 +108,13 @@ impl AsyncComponent for ChatScreen {
                 set_valign: gtk::Align::Fill,
                 set_halign: gtk::Align::Fill,
 
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_hexpand: true,
-                    set_halign: gtk::Align::Fill,
-
-                    // Model Selection
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Horizontal,
-                        set_margin_all: 5,
-                        set_spacing: 5,
-                        set_halign: gtk::Align::Fill,
-                        set_valign: gtk::Align::Start,
-
-                        gtk::Label {
-                            set_label: "Model",
-                        },
-                        #[name = "model_selection_drop_down"]
-                        gtk::DropDown {
-                            set_hexpand: true,
-                            set_halign: gtk::Align::Fill,
-                            set_css_classes: &["dropdown", "model_dropdown"],
-
-                            connect_selected_notify[sender] => move |model_drop_down| {
-                                sender.input(ChatScreenInputMsg::SelectModel(
-                                    model_drop_down
-                                    .selected_item()
-                                    .expect("Getting selected item from dropdown should work")
-                                    .downcast::<gtk::StringObject>()
-                                    .expect("Conversion of gtk StringObject to String should work")
-                                    .into()))
-                            },
-                        },
-
-                        gtk::MenuButton {
-                            set_icon_name: "preferences-system-symbolic",
-                            set_direction: gtk::ArrowType::Down,
-                            set_css_classes: &["button", "options_menu_button"],
-
-                            #[wrap(Some)]
-                            set_popover: popover = &gtk::Popover {
-                                set_position: gtk::PositionType::Bottom,
-                                set_halign: gtk::Align::Fill,
-                                set_hexpand: true,
-
-                                gtk::Box {
-                                    set_orientation: gtk::Orientation::Vertical,
-                                    set_spacing: 5,
-
-                                    // Temperature
-                                    #[template]
-                                    ParameterSpinButton {
-                                        gtk::Label {
-                                            set_label: "Temperature",
-                                            set_justify: gtk::Justification::Left,
-                                        },
-                                        gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.1) {
-                                            set_halign: gtk::Align::Fill,
-                                            set_hexpand: true,
-                                            #[watch]
-                                            set_value: model.options.temperature,
-                                            set_draw_value: true,
-
-                                            connect_value_changed[sender] => move |btn| {
-                                                let value = btn.value();
-                                                sender.input(ChatScreenInputMsg::Temperature(value));
-                                            },
-                                        },
-                                    },
-
-                                    // Top-K
-                                    #[template]
-                                    ParameterSpinButton {
-                                        gtk::Label {
-                                            set_label: "Top-K",
-                                            set_halign: gtk::Align::Fill,
-                                            set_justify: gtk::Justification::Left,
-                                        },
-                                        gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0) {
-                                            set_halign: gtk::Align::Fill,
-                                            #[watch]
-                                            set_value: model.options.top_k as f64,
-                                            set_draw_value: true,
-
-                                            connect_value_changed[sender] => move |btn| {
-                                                let value = btn.value() as u64;
-                                                sender.input(ChatScreenInputMsg::TopK(value));
-                                            },
-                                        },
-                                    },
-
-                                    // Top-P
-                                    #[template]
-                                    ParameterSpinButton {
-                                        gtk::Label {
-                                            set_label: "Top-P",
-                                            set_halign: gtk::Align::Fill,
-                                            set_justify: gtk::Justification::Left,
-                                        },
-                                        gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.1) {
-                                            set_halign: gtk::Align::Fill,
-                                            #[watch]
-                                            set_value: model.options.top_p,
-                                            set_draw_value: true,
-
-                                            connect_value_changed[sender] => move |btn| {
-                                                let value = btn.value();
-                                                sender.input(ChatScreenInputMsg::TopP(value));
-                                            },
-                                        },
-                                    },
-
-                                    gtk::Button {
-                                        set_hexpand: true,
-                                        set_halign: gtk::Align::Fill,
-                                        set_icon_name: "edit-undo-symbolic",
-                                        set_tooltip_text: Some("Restore default options"),
-                                        set_css_classes: &["button", "reset_options_button"],
-                                        connect_clicked => ChatScreenInputMsg::ResetParameters,
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
+                // Assistant Parameters
+                #[local_ref]
+                assistant_parameters -> gtk::Box {},
 
                 // Message bubbles
                 #[local_ref]
-                message_bubbles -> gtk::Box{},
+                message_bubbles -> gtk::Box {},
 
                 // User Chat Input Fields
                 #[local_ref]
@@ -295,6 +164,43 @@ impl AsyncComponent for ChatScreen {
             .launch(messages)
             .detach();
 
+        let local_models = {
+            let assistant = assistant.lock().await;
+            let local_models = match assistant.list_models().await {
+                Ok(models) => models,
+                Err(err) => {
+                    tracing::error!("Could not retrieve list of local models because of: {err}");
+                    Vec::new()
+                }
+            };
+            /*
+            let model_list = gtk::StringList::default();
+            for model_name in local_models {
+                model_list.append(&*model_name);
+            }
+            widgets
+                .model_selection_drop_down
+                .set_model(Some(&model_list));
+             */
+            local_models
+        };
+
+        let assistant_parameters = AssistantParametersComponent::builder()
+            .launch(local_models)
+            .forward(sender.input_sender(), |output| match output {
+                AssistantParametersOutputMsg::Temperature(value) => {
+                    ChatScreenInputMsg::Temperature(value)
+                }
+                AssistantParametersOutputMsg::TopK(value) => ChatScreenInputMsg::TopK(value),
+                AssistantParametersOutputMsg::TopP(value) => ChatScreenInputMsg::TopP(value),
+                AssistantParametersOutputMsg::ResetParameters => {
+                    ChatScreenInputMsg::ResetParameters
+                }
+                AssistantParametersOutputMsg::SelectModel(value) => {
+                    ChatScreenInputMsg::SelectModel(value)
+                }
+            });
+
         let chat_input =
             ChatInputComponent::builder()
                 .launch(())
@@ -321,11 +227,11 @@ impl AsyncComponent for ChatScreen {
         let mut model = ChatScreen {
             assistant: assistant,
             chat_history: chat_history,
-            options: AssistantOptions::default(),
             current_thread_id: latest_thread_id,
-            message_bubbles,
-            chat_input,
             thread_list,
+            assistant_parameters,
+            chat_input,
+            message_bubbles,
         };
 
         // Connect chat history notifier to message bubbles
@@ -365,30 +271,12 @@ impl AsyncComponent for ChatScreen {
         }
 
         // References used in the view macro
+        let assistant_parameters = model.assistant_parameters.widget();
+        let thread_list = model.thread_list.widget();
         let message_bubbles = model.message_bubbles.widget();
         let chat_input = model.chat_input.widget();
-        let thread_list = model.thread_list.widget();
 
         let widgets = view_output!();
-
-        {
-            let assistant = model.assistant.lock().await;
-            let local_models = match assistant.list_models().await {
-                Ok(models) => models,
-                Err(err) => {
-                    tracing::error!("Could not retrieve list of local models because of: {err}");
-                    Vec::new()
-                }
-            };
-
-            let model_list = gtk::StringList::default();
-            for model_name in local_models {
-                model_list.append(&*model_name);
-            }
-            widgets
-                .model_selection_drop_down
-                .set_model(Some(&model_list));
-        }
 
         AsyncComponentParts { model, widgets }
     }
@@ -402,24 +290,21 @@ impl AsyncComponent for ChatScreen {
         match message {
             ChatScreenInputMsg::Temperature(value) => {
                 self.assistant.lock().await.set_temperature(value.clone());
-                self.options.temperature = value;
             }
             ChatScreenInputMsg::TopK(value) => {
                 self.assistant.lock().await.set_top_k(value.clone());
-                self.options.top_k = value;
             }
             ChatScreenInputMsg::TopP(value) => {
                 self.assistant.lock().await.set_top_p(value.clone());
-                self.options.top_p = value;
             }
             ChatScreenInputMsg::ResetParameters => {
                 tracing::info!("Resetting assistant parameters");
                 let mut assistant = self.assistant.lock().await;
                 assistant.reset_parameters();
-                self.options = AssistantOptions::default();
             }
             ChatScreenInputMsg::SelectModel(model) => {
                 tracing::info!("Pulling model {model}");
+                self.disable_inputs();
                 let assistant = self.assistant.clone();
                 sender.command(|out, shutdown: relm4::ShutdownReceiver| {
                     shutdown
@@ -503,7 +388,7 @@ impl AsyncComponent for ChatScreen {
                     .input_sender()
                     .emit(ChatScreenInputMsg::AssistantAnswer);
 
-                self.thread_list.widget().set_sensitive(false);
+                self.disable_inputs();
             }
             ChatScreenInputMsg::AssistantAnswer => {
                 let thread_id = self.current_thread_id;
@@ -602,14 +487,10 @@ impl AsyncComponent for ChatScreen {
     ) {
         match message {
             ChatScreenCmdMsg::PullModelEnd => {
-                // self.chat_input.sender().emit(ChatInputInputMsg::Enable);
-                self.thread_list.widget().set_sensitive(true);
-                self.chat_input.widget().set_sensitive(true);
+                self.enable_inputs();
             }
             ChatScreenCmdMsg::AnswerEnd => {
-                // self.chat_input.sender().emit(ChatInputInputMsg::Enable);
-                self.thread_list.widget().set_sensitive(true);
-                self.chat_input.widget().set_sensitive(true);
+                self.enable_inputs();
             }
         }
     }
