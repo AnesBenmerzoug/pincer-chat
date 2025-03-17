@@ -6,7 +6,21 @@
 
 <em>PincerChat, a desktop GUI for interacting with local LLMs served with <a href=https://ollama.com/>Ollama</a></em>
 
+<img src="screenshot.png" width="800px"/>
+
 </div>
+
+## Features
+
+- Simple and responsive UI.
+- Response streaming.
+- Chat history.
+
+## Roadmap
+
+- [ ] Markdown rendering.
+- [ ] Option to upload and use files and documents.
+- [ ] Compiled Linux, macOS and Windows executables.
 
 ## Getting Started
 
@@ -23,4 +37,3 @@
   ```shell
   cargo install --git https://github.com/AnesBenmerzoug/pincer-chat.git
   ```
-
