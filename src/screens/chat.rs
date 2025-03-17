@@ -72,11 +72,11 @@ pub enum ChatScreenCmdMsg {
 impl WidgetTemplate for ParameterSpinButton {
     view! {
         gtk::Box {
-            set_orientation: gtk::Orientation::Horizontal,
+            set_orientation: gtk::Orientation::Vertical,
             set_margin_all: 5,
             set_spacing: 5,
-            set_halign: gtk::Align::End,
-            set_valign: gtk::Align::Start,
+            set_halign: gtk::Align::Fill,
+            set_valign: gtk::Align::Center,
         }
     }
 }
@@ -159,6 +159,8 @@ impl AsyncComponent for ChatScreen {
                             #[wrap(Some)]
                             set_popover: popover = &gtk::Popover {
                                 set_position: gtk::PositionType::Bottom,
+                                set_halign: gtk::Align::Fill,
+                                set_hexpand: true,
 
                                 gtk::Box {
                                     set_orientation: gtk::Orientation::Vertical,
@@ -169,11 +171,14 @@ impl AsyncComponent for ChatScreen {
                                     ParameterSpinButton {
                                         gtk::Label {
                                             set_label: "Temperature",
+                                            set_justify: gtk::Justification::Left,
                                         },
                                         gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.1) {
                                             set_halign: gtk::Align::Fill,
+                                            set_hexpand: true,
                                             #[watch]
                                             set_value: model.options.temperature,
+                                            set_draw_value: true,
 
                                             connect_value_changed[sender] => move |btn| {
                                                 let value = btn.value();
@@ -187,10 +192,14 @@ impl AsyncComponent for ChatScreen {
                                     ParameterSpinButton {
                                         gtk::Label {
                                             set_label: "Top-K",
+                                            set_halign: gtk::Align::Fill,
+                                            set_justify: gtk::Justification::Left,
                                         },
-                                        gtk::SpinButton::with_range(0.0, 100.0, 1.0) {
+                                        gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0) {
+                                            set_halign: gtk::Align::Fill,
                                             #[watch]
                                             set_value: model.options.top_k as f64,
+                                            set_draw_value: true,
 
                                             connect_value_changed[sender] => move |btn| {
                                                 let value = btn.value() as u64;
@@ -204,10 +213,14 @@ impl AsyncComponent for ChatScreen {
                                     ParameterSpinButton {
                                         gtk::Label {
                                             set_label: "Top-P",
+                                            set_halign: gtk::Align::Fill,
+                                            set_justify: gtk::Justification::Left,
                                         },
-                                        gtk::SpinButton::with_range(0.0, 1.0, 0.1) {
+                                        gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.1) {
+                                            set_halign: gtk::Align::Fill,
                                             #[watch]
                                             set_value: model.options.top_p,
+                                            set_draw_value: true,
 
                                             connect_value_changed[sender] => move |btn| {
                                                 let value = btn.value();

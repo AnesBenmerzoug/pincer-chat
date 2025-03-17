@@ -4,7 +4,6 @@ pub mod ollama;
 pub mod prompts;
 
 use anyhow::Result;
-use database::schema::messages::star;
 use futures::Stream;
 use futures::StreamExt;
 
