@@ -3,7 +3,6 @@ use futures::{FutureExt, StreamExt};
 use gtk::prelude::*;
 use relm4::component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender};
 use relm4::prelude::*;
-use relm4::SharedState;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing;
@@ -11,11 +10,10 @@ use tracing;
 use crate::assistant::ollama::types::{Message, Role};
 use crate::assistant::{database::Database, notification::NotifierMessage, Assistant};
 use crate::components::assistant_parameters::{
-    self, AssistantParametersComponent, AssistantParametersComponentWidgets,
-    AssistantParametersInputMsg, AssistantParametersOutputMsg, GenerationParameters,
+    AssistantParametersComponent, AssistantParametersOutputMsg,
 };
 use crate::components::chat_input::{
-    self, ChatInputComponent, ChatInputInputMsg, ChatInputOutputMsg,
+    ChatInputComponent, ChatInputOutputMsg,
 };
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
@@ -138,7 +136,7 @@ impl AsyncComponent for ChatScreen {
                 .await
                 .expect("Getting all thread should work");
 
-            if threads.len() == 0 {
+            if threads.is_empty() {
                 tracing::info!("No threads were found. Creating new one");
                 let thread = chat_history
                     .create_thread("New Thread")
@@ -166,23 +164,13 @@ impl AsyncComponent for ChatScreen {
 
         let local_models = {
             let assistant = assistant.lock().await;
-            let local_models = match assistant.list_models().await {
+            match assistant.list_models().await {
                 Ok(models) => models,
                 Err(err) => {
                     tracing::error!("Could not retrieve list of local models because of: {err}");
                     Vec::new()
                 }
-            };
-            /*
-            let model_list = gtk::StringList::default();
-            for model_name in local_models {
-                model_list.append(&*model_name);
             }
-            widgets
-                .model_selection_drop_down
-                .set_model(Some(&model_list));
-             */
-            local_models
         };
 
         let assistant_parameters = AssistantParametersComponent::builder()
@@ -224,9 +212,9 @@ impl AsyncComponent for ChatScreen {
                 }
             });
 
-        let mut model = ChatScreen {
-            assistant: assistant,
-            chat_history: chat_history,
+        let model = ChatScreen {
+            assistant,
+            chat_history,
             current_thread_id: latest_thread_id,
             thread_list,
             assistant_parameters,
@@ -289,13 +277,13 @@ impl AsyncComponent for ChatScreen {
     ) {
         match message {
             ChatScreenInputMsg::Temperature(value) => {
-                self.assistant.lock().await.set_temperature(value.clone());
+                self.assistant.lock().await.set_temperature(value);
             }
             ChatScreenInputMsg::TopK(value) => {
-                self.assistant.lock().await.set_top_k(value.clone());
+                self.assistant.lock().await.set_top_k(value);
             }
             ChatScreenInputMsg::TopP(value) => {
-                self.assistant.lock().await.set_top_p(value.clone());
+                self.assistant.lock().await.set_top_p(value);
             }
             ChatScreenInputMsg::ResetParameters => {
                 tracing::info!("Resetting assistant parameters");

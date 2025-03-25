@@ -3,7 +3,7 @@ pub mod schema;
 
 use std::fmt;
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{anyhow, Result};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
@@ -13,7 +13,7 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use home::home_dir;
 
 use super::notification::{Notifier, NotifierMessage};
-use super::ollama::types::{Message as OllamaMessage, Role};
+use super::ollama::types::Role;
 use super::prompts::ASSISTANT_SYSTEM_PROMPT;
 
 use self::models::{Message, NewMessage, NewThread, Thread};
@@ -34,20 +34,27 @@ impl fmt::Debug for Database {
 }
 
 impl Database {
-    pub async fn new() -> Result<Self> {
-        let mut database_url = match home_dir() {
-            Some(path) if !path.as_os_str().is_empty() => path,
-            _ => return Err(anyhow!("Unable to get home dir!")),
+    pub async fn new(database_url: Option<&str>) -> Result<Self> {
+        let database_url = match database_url {
+            Some(database_url) => String::from(database_url),
+            None => {
+                let mut database_path = match home_dir() {
+                    Some(path) if !path.as_os_str().is_empty() => path,
+                    _ => panic!("Unable to get home dir!"),
+                };
+                database_path.push(".pincer_chat");
+                database_path.push("database.db");
+                
+                match database_path.into_os_string().into_string()
+                {
+                    Ok(database_url) => database_url,
+                    Err(error) => panic!("Unable to get your home dir because of: {:?}", error),
+                }
+            }
         };
-        database_url.push(".pincer_chat");
-        database_url.push("database.db");
-        let database_url = match database_url.as_path().to_str() {
-            Some(path) => path,
-            None => return Err(anyhow!("Unable to get your home dir!")),
-        };
-        let connection = Self::connect(database_url.clone()).await?;
+        let connection = Self::connect(&database_url).await?;
         let instance = Self {
-            database_url: String::from(database_url),
+            database_url,
             connection,
             notifier: Notifier::new(),
         };
@@ -60,7 +67,7 @@ impl Database {
     }
 
     pub async fn run_migrations(&self) -> Result<()> {
-        let connection = Self::connect(&*self.database_url.clone()).await?;
+        let connection = Self::connect(&self.database_url).await?;
         let mut async_wrapper: AsyncConnectionWrapper<SyncConnectionWrapper<SqliteConnection>> =
             AsyncConnectionWrapper::from(connection);
         let _ = tokio::task::spawn_blocking(move || -> Result<()> {
@@ -79,17 +86,8 @@ impl Database {
         Ok(())
     }
 
-    pub async fn is_running(&mut self) -> bool {
-        !schema::threads::table
-            .select(Thread::as_select())
-            .limit(1)
-            .load(&mut self.connection)
-            .await
-            .is_err()
-    }
-
     pub async fn create_thread(&mut self, title: &str) -> Result<Thread> {
-        let new_thread = NewThread { title: title };
+        let new_thread = NewThread { title };
         let inserted_thread = diesel::insert_into(threads::table)
             .values(&new_thread)
             .returning(Thread::as_returning())
@@ -127,9 +125,9 @@ impl Database {
     }
 
     pub async fn delete_thread(&mut self, id: i64) -> Result<()> {
-        use self::schema::threads::dsl::*;
+        use self::schema::threads::dsl;
 
-        diesel::delete(threads.filter(id.eq(id)))
+        diesel::delete(dsl::threads.filter(dsl::id.eq(id)))
             .execute(&mut self.connection)
             .await?;
         Ok(())
@@ -142,15 +140,6 @@ impl Database {
             .load(&mut self.connection)
             .await?;
         Ok(threads)
-    }
-
-    pub async fn get_latest_thread(&mut self) -> Result<Option<Thread>> {
-        let thread = schema::threads::table
-            .select(Thread::as_select())
-            .first(&mut self.connection)
-            .await
-            .optional();
-        thread.map_err(Error::msg)
     }
 
     pub async fn get_messages(&mut self, thread_id: i64) -> Result<Vec<Message>> {
@@ -173,7 +162,7 @@ impl Database {
     ) -> Result<Message> {
         let new_message = NewMessage {
             thread_id,
-            content: &*content,
+            content: &content,
             role: role.into(),
         };
         let inserted_message = diesel::insert_into(messages::table)

@@ -203,7 +203,7 @@ impl Component for AssistantParametersComponent {
 
         let model_list = gtk::StringList::default();
         for model_name in models {
-            model_list.append(&*model_name);
+            model_list.append(&model_name);
         }
         widgets
             .model_selection_drop_down

@@ -15,7 +15,7 @@ pub struct NewThread<'a> {
 pub struct Thread {
     pub id: i64,
     pub title: String,
-    pub created_at: NaiveDateTime,
+    #[allow(dead_code)] pub created_at: NaiveDateTime,
     pub last_updated_at: NaiveDateTime,
 }
 
@@ -33,7 +33,7 @@ pub struct NewMessage<'a> {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Message {
     pub id: i64,
-    pub thread_id: i64,
+    #[allow(dead_code)] pub thread_id: i64,
     pub created_at: NaiveDateTime,
     pub content: String,
     pub role: String,

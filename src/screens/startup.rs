@@ -7,8 +7,7 @@ use tokio::time::{sleep, Duration};
 use tracing;
 
 use crate::assets::LOGO_SVG;
-use crate::assistant::ollama::types::{ChatResponse, Message, PullModelResponse, Role};
-use crate::assistant::{database::Database, Assistant, AssistantParameters};
+use crate::assistant::{database::Database, Assistant};
 
 #[derive(Debug)]
 pub struct StartupScreen {
@@ -190,7 +189,7 @@ impl AsyncComponent for StartupScreen {
                     }
                 };
                 let mut model = String::from("llama3.2:1b");
-                if models.len() == 0 {
+                if models.is_empty() {
                     tracing::info!("No local model found. Using {model} as default model");
                 } else {
                     tracing::info!(

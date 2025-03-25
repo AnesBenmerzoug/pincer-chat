@@ -208,7 +208,7 @@ impl ThreadListItem {
     }
 
     fn reverse_cmp(&self, other: &Self) -> Ordering {
-        other.cmp(&self)
+        other.cmp(self)
     }
 }
 
@@ -265,7 +265,7 @@ impl RelmListItem for ThreadListItem {
     fn bind(&mut self, widgets: &mut Self::Widgets, _: &mut Self::Root) {
         let Self::Widgets { title, timestamp } = widgets;
 
-        title.set_label(&*self.title);
-        timestamp.set_label(&*self.last_updated_at.format("%d %B %Y at %R").to_string());
+        title.set_label(&self.title);
+        timestamp.set_label(&self.last_updated_at.format("%d %B %Y at %R").to_string());
     }
 }

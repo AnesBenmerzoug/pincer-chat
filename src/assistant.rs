@@ -71,10 +71,7 @@ impl Assistant {
     }
 
     pub async fn is_ollama_running(&self) -> bool {
-        match version().await {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        version().await.is_ok()
     }
 
     pub async fn list_models(&self) -> Result<Vec<String>> {
@@ -107,7 +104,7 @@ impl Assistant {
 
     fn remove_think_tags(&self, text: String) -> String {
         let start_index = text.find("<think>").unwrap_or(0);
-        let mut end_index = text.find("</think>").map_or(0, |v| v + "</think>".len());
+        let end_index = text.find("</think>").map_or(0, |v| v + "</think>".len());
         let before_part = &text[..start_index];
         let after_part = &text[end_index..];
         format!("{}{}", before_part, after_part)

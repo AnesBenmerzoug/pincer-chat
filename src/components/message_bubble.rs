@@ -1,7 +1,6 @@
 use std::future::Future;
 
 use anyhow::Result;
-use chrono::prelude::*;
 use gtk::prelude::*;
 use relm4::component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender};
 use relm4::factory::{AsyncFactoryComponent, AsyncFactoryVecDeque};
@@ -77,7 +76,7 @@ impl AsyncComponent for MessageBubbleContainerComponent {
         &mut self,
         widgets: &mut Self::Widgets,
         message: Self::Input,
-        sender: AsyncComponentSender<Self>,
+        _: AsyncComponentSender<Self>,
         _: &Self::Root,
     ) {
         match message {
@@ -162,7 +161,7 @@ impl MessageBubbleComponent {
     }
 
     pub async fn append_to_message(&mut self, content: String) -> Result<()> {
-        self.buffer.insert_at_cursor(&*content);
+        self.buffer.insert_at_cursor(&content);
         Ok(())
     }
 }

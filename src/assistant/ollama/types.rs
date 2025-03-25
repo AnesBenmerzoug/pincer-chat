@@ -29,9 +29,9 @@ impl TryFrom<String> for Role {
     }
 }
 
-impl Into<&str> for Role {
-    fn into(self) -> &'static str {
-        match self {
+impl From<Role> for &str {
+    fn from(val: Role) -> Self {
+        match val {
             Role::User => "user",
             Role::Assistant => "assistant",
             Role::System => "system",

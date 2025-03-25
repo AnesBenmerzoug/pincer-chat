@@ -9,9 +9,8 @@ use relm4::prelude::*;
 use relm4::RelmRemoveAllExt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing;
 
-use assistant::{database::Database, ollama::types::Message, Assistant, AssistantParameters};
+use assistant::{database::Database, Assistant};
 use screens::{
     chat::ChatScreen,
     startup::{StartupScreen, StartupScreenOutputMsg},
@@ -28,8 +27,8 @@ struct App {
 
 #[derive(Debug)]
 enum AppScreen {
-    StartUp(AsyncController<StartupScreen>),
-    Chat(AsyncController<ChatScreen>),
+    StartUp(#[allow(dead_code)] AsyncController<StartupScreen>),
+    Chat(#[allow(dead_code)] AsyncController<ChatScreen>),
 }
 
 #[derive(Debug)]
@@ -74,7 +73,7 @@ impl AsyncComponent for App {
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         let assistant = Assistant::new().await;
-        let chat_history = Database::new()
+        let chat_history = Database::new(None)
             .await
             .expect("Database connection should work");
 

@@ -9,7 +9,6 @@ pub struct ChatInputComponent {
 
 #[derive(Debug)]
 pub enum ChatInputInputMsg {
-    Enable,
     Disable,
     Submit,
 }
@@ -22,10 +21,6 @@ pub enum ChatInputOutputMsg {
 impl ChatInputComponent {
     fn disable(&mut self) {
         self.enabled = false;
-    }
-
-    fn enable(&mut self) {
-        self.enabled = true;
     }
 }
 
@@ -51,7 +46,7 @@ impl Component for ChatInputComponent {
                 #[watch]
                 set_tooltip_text: Some("Write a message"),
                 #[watch]
-                set_placeholder_text: if model.enabled == true { Some("Write a message") } else { Some("Loading ...") },
+                set_placeholder_text: if model.enabled { Some("Write a message") } else { Some("Loading ...") },
                 set_hexpand: true,
                 set_halign: gtk::Align::Fill,
                 set_css_classes: &["user_input"],
@@ -87,9 +82,6 @@ impl Component for ChatInputComponent {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _: &Self::Root) {
         match message {
-            ChatInputInputMsg::Enable => {
-                self.enable();
-            }
             ChatInputInputMsg::Disable => {
                 self.disable();
             }
