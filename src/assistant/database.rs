@@ -34,9 +34,9 @@ impl fmt::Debug for Database {
 }
 
 impl Database {
-    pub async fn new(database_url: Option<&str>) -> Result<Self> {
+    pub async fn new(database_url: Option<String>) -> Result<Self> {
         let database_url = match database_url {
-            Some(database_url) => String::from(database_url),
+            Some(database_url) => database_url,
             None => {
                 let mut database_path = match home_dir() {
                     Some(path) if !path.as_os_str().is_empty() => path,
@@ -186,5 +186,34 @@ impl Database {
         self.notifier
             .notify(NotifierMessage::UpdateMessage(content_update));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn setup_database() -> Database {
+        let mut temp_dir = std::env::temp_dir();
+        temp_dir.push("pincer_chat_test_database.db");
+        let database_url = match temp_dir.into_os_string().into_string() {
+            Ok(database_url) => database_url,
+            Err(_) => panic!("Unable to get temporary dir for tests!"),
+        };
+        let database = Database::new(Some(database_url))
+            .await
+            .expect("Instantiating database should work");
+        database.run_migrations().await.expect("Migrations should work");
+        database
+    }
+
+    #[tokio::test]
+    async fn test_creating_thread() {
+        let mut database = setup_database().await;
+        let result = database.create_thread("Test Thread Title").await;
+        assert!(result.is_ok());
+        let thread = result.unwrap();
+        assert!(thread.id > 0);
+        assert_eq!(thread.title, "Test Thread Title");
     }
 }
