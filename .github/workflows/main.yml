@@ -40,13 +40,13 @@ jobs:
     - name: Lint Check
       run: cargo clippy
     - name: Test
-      run: cargo llvm-cov --all-features --workspace --html --output-path cov.html
+      run: cargo llvm-cov --all-features --workspace --html
     - name: Archive code coverage
       uses: actions/upload-artifact@v4
       with:
         name: coverage
         path: |
-          cov.html
+          target/llvm-cov/html/
     - name: Build
       run: cargo build --release -v
     - name: Archive built executable
