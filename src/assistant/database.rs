@@ -132,6 +132,13 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_thread(&mut self, id: i64) -> Result<Thread> {
+        use self::schema::threads::dsl;
+
+        let thread = dsl::threads.find(id).first(&mut self.connection).await?;
+        Ok(thread)
+    }
+
     pub async fn get_threads(&mut self) -> Result<Vec<Thread>> {
         let threads = schema::threads::table
             .select(Thread::as_select())
@@ -191,32 +198,83 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    use rand::distr::{Alphanumeric, SampleString};
+
     use super::*;
 
-    async fn setup_database() -> Database {
-        let mut temp_dir = std::env::temp_dir();
-        temp_dir.push("pincer_chat_test_database.db");
-        let database_url = match temp_dir.into_os_string().into_string() {
-            Ok(database_url) => database_url,
-            Err(_) => panic!("Unable to get temporary dir for tests!"),
-        };
-        let database = Database::new(Some(database_url))
-            .await
-            .expect("Instantiating database should work");
-        database
-            .run_migrations()
-            .await
-            .expect("Migrations should work");
-        database
+    struct TestDatabaseWrapper {
+        database_filepath: String,
+        pub database: Database,
+    }
+
+    impl TestDatabaseWrapper {
+        async fn setup() -> Self {
+            let mut temp_dir = std::env::temp_dir();
+            let database_filename: String =
+                Alphanumeric.sample_string(&mut rand::rng(), 16) + ".db";
+            temp_dir.push(database_filename);
+            let database_url = match temp_dir.into_os_string().into_string() {
+                Ok(database_url) => database_url,
+                Err(_) => panic!("Unable to get temporary dir for tests!"),
+            };
+            let database = Database::new(Some(database_url.clone()))
+                .await
+                .expect("Instantiating database should work");
+            database
+                .run_migrations()
+                .await
+                .expect("Migrations should work");
+            Self {
+                database_filepath: database_url,
+                database,
+            }
+        }
+    }
+
+    impl Drop for TestDatabaseWrapper {
+        fn drop(&mut self) {
+            std::fs::remove_file(&*self.database_filepath)
+                .expect("Deleting database file should work");
+        }
     }
 
     #[tokio::test]
     async fn test_creating_thread() {
-        let mut database = setup_database().await;
+        let mut database_wrapper = TestDatabaseWrapper::setup().await;
+        let database = &mut database_wrapper.database;
+        let result = database.create_thread("Test Thread Title").await;
+        assert!(result.is_ok(), "Error: {}", result.err().unwrap());
+        let thread = result.unwrap();
+        assert!(thread.id > 0);
+        assert_eq!(thread.title, "Test Thread Title");
+
+        let messages = database
+            .get_messages(thread.id)
+            .await
+            .expect("Getting thread message should work");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "system");
+    }
+
+    #[tokio::test]
+    async fn test_updating_thread_title() {
+        let mut database_wrapper = TestDatabaseWrapper::setup().await;
+        let database = &mut database_wrapper.database;
         let result = database.create_thread("Test Thread Title").await;
         assert!(result.is_ok());
         let thread = result.unwrap();
         assert!(thread.id > 0);
         assert_eq!(thread.title, "Test Thread Title");
+
+        database
+            .update_thread_title(thread.id, String::from("A Different Title"))
+            .await
+            .expect("Updating thread title should work");
+
+        let thread = database
+            .get_thread(thread.id)
+            .await
+            .expect("Getting thread by id should work");
+        assert_eq!(thread.title, "A Different Title");
     }
 }
