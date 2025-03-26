@@ -12,7 +12,7 @@ use diesel_async::{AsyncConnection, RunQueryDsl};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use home::home_dir;
 
-use super::notification::{Notifier, NotifierMessage};
+use super::notification::{DatabaseNotifier, DatabaseNotifierMessage};
 use super::ollama::types::Role;
 use super::prompts::ASSISTANT_SYSTEM_PROMPT;
 
@@ -24,7 +24,7 @@ const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 pub struct Database {
     database_url: String,
     connection: SyncConnectionWrapper<SqliteConnection>,
-    pub notifier: Notifier,
+    pub notifier: DatabaseNotifier,
 }
 
 impl fmt::Debug for Database {
@@ -44,9 +44,8 @@ impl Database {
                 };
                 database_path.push(".pincer_chat");
                 database_path.push("database.db");
-                
-                match database_path.into_os_string().into_string()
-                {
+
+                match database_path.into_os_string().into_string() {
                     Ok(database_url) => database_url,
                     Err(error) => panic!("Unable to get your home dir because of: {:?}", error),
                 }
@@ -56,7 +55,7 @@ impl Database {
         let instance = Self {
             database_url,
             connection,
-            notifier: Notifier::new(),
+            notifier: DatabaseNotifier::new(),
         };
         Ok(instance)
     }
@@ -108,7 +107,7 @@ impl Database {
             .await?;
 
         self.notifier
-            .notify(NotifierMessage::NewThread(inserted_thread.clone()));
+            .notify(DatabaseNotifierMessage::NewThread(inserted_thread.clone()));
         Ok(inserted_thread)
     }
 
@@ -120,7 +119,7 @@ impl Database {
             .get_result(&mut self.connection)
             .await?;
         self.notifier
-            .notify(NotifierMessage::UpdateThread(updated_thread));
+            .notify(DatabaseNotifierMessage::UpdateThread(updated_thread));
         Ok(())
     }
 
@@ -150,7 +149,7 @@ impl Database {
             .await?;
 
         self.notifier
-            .notify(NotifierMessage::GetThreadMessages(messages.clone()));
+            .notify(DatabaseNotifierMessage::GetThreadMessages(messages.clone()));
         Ok(messages)
     }
 
@@ -171,8 +170,9 @@ impl Database {
             .get_result(&mut self.connection)
             .await?;
 
-        self.notifier
-            .notify(NotifierMessage::NewMessage(inserted_message.clone()));
+        self.notifier.notify(DatabaseNotifierMessage::NewMessage(
+            inserted_message.clone(),
+        ));
         Ok(inserted_message)
     }
 
@@ -184,7 +184,7 @@ impl Database {
             .execute(&mut self.connection)
             .await?;
         self.notifier
-            .notify(NotifierMessage::UpdateMessage(content_update));
+            .notify(DatabaseNotifierMessage::UpdateMessage(content_update));
         Ok(())
     }
 }
@@ -203,7 +203,10 @@ mod tests {
         let database = Database::new(Some(database_url))
             .await
             .expect("Instantiating database should work");
-        database.run_migrations().await.expect("Migrations should work");
+        database
+            .run_migrations()
+            .await
+            .expect("Migrations should work");
         database
     }
 

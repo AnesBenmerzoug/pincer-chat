@@ -8,13 +8,11 @@ use tokio::sync::Mutex;
 use tracing;
 
 use crate::assistant::ollama::types::{Message, Role};
-use crate::assistant::{database::Database, notification::NotifierMessage, Assistant};
+use crate::assistant::{database::Database, notification::DatabaseNotifierMessage, Assistant};
 use crate::components::assistant_parameters::{
     AssistantParametersComponent, AssistantParametersOutputMsg,
 };
-use crate::components::chat_input::{
-    ChatInputComponent, ChatInputOutputMsg,
-};
+use crate::components::chat_input::{ChatInputComponent, ChatInputOutputMsg};
 use crate::components::message_bubble::{
     MessageBubbleContainerComponent, MessageBubbleContainerInputMsg,
 };
@@ -25,7 +23,7 @@ use crate::components::thread_list::{
 #[derive(Debug)]
 pub struct ChatScreen {
     assistant: Arc<Mutex<Assistant>>,
-    chat_history: Arc<Mutex<Database>>,
+    database: Arc<Mutex<Database>>,
     current_thread_id: i64,
     // Components
     assistant_parameters: Controller<AssistantParametersComponent>,
@@ -127,18 +125,18 @@ impl AsyncComponent for ChatScreen {
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         let assistant = init.0;
-        let chat_history = init.1;
+        let database = init.1;
 
         let threads = {
-            let mut chat_history = chat_history.lock().await;
-            let mut threads = chat_history
+            let mut database = database.lock().await;
+            let mut threads = database
                 .get_threads()
                 .await
                 .expect("Getting all thread should work");
 
             if threads.is_empty() {
                 tracing::info!("No threads were found. Creating new one");
-                let thread = chat_history
+                let thread = database
                     .create_thread("New Thread")
                     .await
                     .expect("Creating thread should work");
@@ -151,8 +149,8 @@ impl AsyncComponent for ChatScreen {
         let latest_thread_id = latest_thread.id;
 
         let messages = {
-            let mut chat_history = chat_history.lock().await;
-            chat_history
+            let mut database = database.lock().await;
+            database
                 .get_messages(latest_thread_id)
                 .await
                 .expect("Getting messages should work")
@@ -214,7 +212,7 @@ impl AsyncComponent for ChatScreen {
 
         let model = ChatScreen {
             assistant,
-            chat_history,
+            database,
             current_thread_id: latest_thread_id,
             thread_list,
             assistant_parameters,
@@ -224,17 +222,17 @@ impl AsyncComponent for ChatScreen {
 
         // Connect chat history notifier to message bubbles
         {
-            let chat_history = model.chat_history.lock().await;
-            chat_history.notifier.subscribe(
+            let database = model.database.lock().await;
+            database.notifier.subscribe(
                 model.message_bubbles.sender(),
-                |notifier_message: NotifierMessage| match notifier_message {
-                    NotifierMessage::NewMessage(message) => {
+                |notifier_message: DatabaseNotifierMessage| match notifier_message {
+                    DatabaseNotifierMessage::NewMessage(message) => {
                         Some(MessageBubbleContainerInputMsg::AddNewMessage(message))
                     }
-                    NotifierMessage::UpdateMessage(message_update) => Some(
+                    DatabaseNotifierMessage::UpdateMessage(message_update) => Some(
                         MessageBubbleContainerInputMsg::AppendToLastMessage(message_update),
                     ),
-                    NotifierMessage::GetThreadMessages(messages) => {
+                    DatabaseNotifierMessage::GetThreadMessages(messages) => {
                         Some(MessageBubbleContainerInputMsg::RefreshMessages(messages))
                     }
                     _ => None,
@@ -243,14 +241,14 @@ impl AsyncComponent for ChatScreen {
         }
         // Connect chat history notifier to thread list
         {
-            let chat_history = model.chat_history.lock().await;
-            chat_history.notifier.subscribe(
+            let database = model.database.lock().await;
+            database.notifier.subscribe(
                 model.thread_list.sender(),
-                |notifier_message: NotifierMessage| match notifier_message {
-                    NotifierMessage::NewThread(thread) => {
+                |notifier_message: DatabaseNotifierMessage| match notifier_message {
+                    DatabaseNotifierMessage::NewThread(thread) => {
                         Some(ThreadListContainerInputMsg::AddThread(thread))
                     }
-                    NotifierMessage::UpdateThread(thread) => {
+                    DatabaseNotifierMessage::UpdateThread(thread) => {
                         Some(ThreadListContainerInputMsg::UpdateThread(thread))
                     }
                     _ => None,
@@ -333,8 +331,8 @@ impl AsyncComponent for ChatScreen {
             ChatScreenInputMsg::GetThreadMessages(thread_id) => {
                 tracing::info!("Getting messages for thread with id {thread_id}");
                 {
-                    let mut chat_history = self.chat_history.lock().await;
-                    chat_history
+                    let mut database = self.database.lock().await;
+                    database
                         .get_messages(thread_id)
                         .await
                         .expect("Getting thread messages should work");
@@ -343,8 +341,8 @@ impl AsyncComponent for ChatScreen {
             }
             ChatScreenInputMsg::CreateNewThread => {
                 tracing::info!("Creating new thread");
-                let mut chat_history = self.chat_history.lock().await;
-                let thread = chat_history
+                let mut database = self.database.lock().await;
+                let thread = database
                     .create_thread("New Thread")
                     .await
                     .expect("Creating new thread should work");
@@ -352,8 +350,8 @@ impl AsyncComponent for ChatScreen {
             }
             ChatScreenInputMsg::DeleteThread(thread_id) => {
                 tracing::info!("Deleting thread with id {thread_id}");
-                let mut chat_history = self.chat_history.lock().await;
-                chat_history
+                let mut database = self.database.lock().await;
+                database
                     .delete_thread(thread_id)
                     .await
                     .expect("Deleting thread should work");
@@ -365,9 +363,9 @@ impl AsyncComponent for ChatScreen {
                     role: Role::User,
                 };
                 {
-                    let mut chat_history = self.chat_history.lock().await;
+                    let mut database = self.database.lock().await;
                     let thread_id = self.current_thread_id;
-                    chat_history
+                    database
                         .create_message(thread_id, message.content, message.role)
                         .await
                         .expect("Message should be created");
@@ -380,11 +378,11 @@ impl AsyncComponent for ChatScreen {
             }
             ChatScreenInputMsg::AssistantAnswer => {
                 let thread_id = self.current_thread_id;
-                let chat_history = self.chat_history.clone();
+                let database = self.database.clone();
 
                 let messages: Vec<Message> = {
-                    let mut chat_history = chat_history.lock().await;
-                    let messages = chat_history
+                    let mut database = database.lock().await;
+                    let messages = database
                         .get_messages(thread_id)
                         .await
                         .expect("Getting messages should work");
@@ -406,16 +404,16 @@ impl AsyncComponent for ChatScreen {
                         .generate_thread_title(messages[1].clone())
                         .await
                         .unwrap();
-                    let mut chat_history = chat_history.lock().await;
-                    chat_history
+                    let mut database = database.lock().await;
+                    database
                         .update_thread_title(self.current_thread_id, thread_title)
                         .await
                         .expect("Updating thread title should work");
                 }
 
                 let assistant_message_id = {
-                    let mut chat_history = chat_history.lock().await;
-                    let message = chat_history
+                    let mut database = database.lock().await;
+                    let message = database
                         .create_message(thread_id, String::new(), Role::Assistant)
                         .await
                         .expect("Creating an empty assistant message should work");
@@ -442,8 +440,8 @@ impl AsyncComponent for ChatScreen {
                                 match result {
                                     Ok(message) => {
                                         tracing::info!("Received assistant answer: {:?}", message);
-                                        let mut chat_history = chat_history.lock().await;
-                                        chat_history
+                                        let mut database = database.lock().await;
+                                        database
                                             .update_message(assistant_message_id, message.content)
                                             .await
                                             .expect("Updating message in database should work");

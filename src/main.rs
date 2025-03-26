@@ -21,7 +21,7 @@ const APP_ID: &str = "org.relm4.PincerChat";
 #[derive(Debug)]
 struct App {
     assistant: Arc<Mutex<Assistant>>,
-    chat_history: Arc<Mutex<Database>>,
+    database: Arc<Mutex<Database>>,
     screen: Option<AppScreen>,
 }
 
@@ -73,13 +73,13 @@ impl AsyncComponent for App {
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         let assistant = Assistant::new().await;
-        let chat_history = Database::new(None)
+        let database = Database::new(None)
             .await
             .expect("Database connection should work");
 
         let mut model = App {
             assistant: Arc::new(Mutex::new(assistant)),
-            chat_history: Arc::new(Mutex::new(chat_history)),
+            database: Arc::new(Mutex::new(database)),
             screen: None,
         };
 
@@ -104,9 +104,9 @@ impl AsyncComponent for App {
             AppMsg::ShowStartUpScreen => {
                 tracing::info!("Showing startup screen");
                 let assistant = self.assistant.clone();
-                let chat_history = self.chat_history.clone();
+                let database = self.database.clone();
                 let controller = StartupScreen::builder()
-                    .launch((assistant, chat_history))
+                    .launch((assistant, database))
                     .forward(sender.input_sender(), |output| match output {
                         StartupScreenOutputMsg::End => AppMsg::ShowChatScreen,
                     });
@@ -115,10 +115,8 @@ impl AsyncComponent for App {
             }
             AppMsg::ShowChatScreen => {
                 let assistant = self.assistant.clone();
-                let chat_history = self.chat_history.clone();
-                let controller = ChatScreen::builder()
-                    .launch((assistant, chat_history))
-                    .detach();
+                let database = self.database.clone();
+                let controller = ChatScreen::builder().launch((assistant, database)).detach();
                 widgets.container.append(controller.widget());
                 self.screen = Some(AppScreen::Chat(controller));
             }

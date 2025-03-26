@@ -12,7 +12,7 @@ use crate::assistant::{database::Database, Assistant};
 #[derive(Debug)]
 pub struct StartupScreen {
     assistant: Arc<Mutex<Assistant>>,
-    chat_history: Arc<Mutex<Database>>,
+    database: Arc<Mutex<Database>>,
     state: StartupScreenState,
 }
 
@@ -116,7 +116,7 @@ impl AsyncComponent for StartupScreen {
     ) -> AsyncComponentParts<Self> {
         let mut model = StartupScreen {
             assistant: init.0,
-            chat_history: init.1,
+            database: init.1,
             state: StartupScreenState::Start,
         };
 
@@ -207,8 +207,8 @@ impl AsyncComponent for StartupScreen {
             }
             StartupScreenInputMsg::RunDatabaseMigrations => {
                 tracing::info!("Running database migrations");
-                let chat_history = self.chat_history.lock().await;
-                match chat_history.run_migrations().await {
+                let database = self.database.lock().await;
+                match database.run_migrations().await {
                     Ok(_) => {
                         tracing::info!("Database migrations successful");
                         sender.input_sender().emit(StartupScreenInputMsg::End);

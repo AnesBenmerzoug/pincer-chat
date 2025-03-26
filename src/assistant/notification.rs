@@ -4,12 +4,12 @@ use tracing;
 
 use super::database::models::{Message, Thread};
 
-pub struct Notifier {
-    broadcast_sender: broadcast::Sender<NotifierMessage>,
+pub struct DatabaseNotifier {
+    broadcast_sender: broadcast::Sender<DatabaseNotifierMessage>,
 }
 
 #[derive(Debug, Clone)]
-pub enum NotifierMessage {
+pub enum DatabaseNotifierMessage {
     NewMessage(Message),
     UpdateMessage(String),
     NewThread(Thread),
@@ -17,7 +17,7 @@ pub enum NotifierMessage {
     GetThreadMessages(Vec<Message>),
 }
 
-impl Notifier {
+impl DatabaseNotifier {
     pub fn new() -> Self {
         let (sender, _) = broadcast::channel(100);
         Self {
@@ -25,7 +25,7 @@ impl Notifier {
         }
     }
     /// Sends a message to all the subscribers.
-    pub fn notify(&self, message: NotifierMessage) {
+    pub fn notify(&self, message: DatabaseNotifierMessage) {
         match self.broadcast_sender.send(message) {
             Ok(_) => (),
             Err(error) => tracing::warn!("Failed notifying subscribers because of {error}"),
@@ -37,7 +37,7 @@ impl Notifier {
     /// `notify` is called.
     pub fn subscribe<Msg, F>(&self, sender: &relm4::Sender<Msg>, f: F)
     where
-        F: Fn(NotifierMessage) -> Option<Msg> + 'static + Send + Sync,
+        F: Fn(DatabaseNotifierMessage) -> Option<Msg> + 'static + Send + Sync,
         Msg: Send + 'static,
     {
         let sender = sender.clone();
