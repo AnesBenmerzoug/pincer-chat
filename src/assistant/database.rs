@@ -132,6 +132,7 @@ impl Database {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn get_thread(&mut self, id: i64) -> Result<Thread> {
         use self::schema::threads::dsl;
 
