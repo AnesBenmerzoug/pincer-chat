@@ -24,7 +24,7 @@ jobs:
     # The gtk4:latest image is based on fedora:latest
     - name: Install packages
       run: |
-        sudo dnf install -y openssl-devel sqlite3
+        sudo dnf install -y openssl-devel sqlite-devel
     - name: Dependency Tree
       run: |
         cargo install cargo-tree
