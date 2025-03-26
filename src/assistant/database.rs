@@ -277,4 +277,70 @@ mod tests {
             .expect("Getting thread by id should work");
         assert_eq!(thread.title, "A Different Title");
     }
+
+    #[tokio::test]
+    async fn test_deleting_thread() {
+        let mut database_wrapper = TestDatabaseWrapper::setup().await;
+        let database = &mut database_wrapper.database;
+        let result = database.create_thread("Test Thread Title").await;
+        assert!(result.is_ok(), "Error: {}", result.err().unwrap());
+        let thread = result.unwrap();
+        assert!(thread.id > 0);
+        assert_eq!(thread.title, "Test Thread Title");
+
+        let n_threads_before_delete = database
+            .get_threads()
+            .await
+            .expect("Getting all threads should work")
+            .len();
+        assert_eq!(n_threads_before_delete, 1);
+
+        database
+            .delete_thread(thread.id)
+            .await
+            .expect("Deleting thread should work");
+
+        let n_threads_after_delete = database
+            .get_threads()
+            .await
+            .expect("Getting all threads should work")
+            .len();
+        assert_eq!(n_threads_after_delete, 0);
+    }
+
+    #[tokio::test]
+    async fn test_deleting_multiple_threads() {
+        let mut database_wrapper = TestDatabaseWrapper::setup().await;
+        let database = &mut database_wrapper.database;
+        let mut thread_ids: Vec<i64> = Vec::new();
+        for _ in 0..3 {
+            let result = database.create_thread("Test Thread Title").await;
+            assert!(result.is_ok(), "Error: {}", result.err().unwrap());
+            let thread = result.unwrap();
+            assert!(thread.id > 0);
+            assert_eq!(thread.title, "Test Thread Title");
+            thread_ids.push(thread.id);
+        }
+
+        let n_threads_before_delete = database
+            .get_threads()
+            .await
+            .expect("Getting all threads should work")
+            .len();
+        assert_eq!(n_threads_before_delete, 3);
+
+        for (i, thread_id) in thread_ids.iter().enumerate() {
+            database
+                .delete_thread(*thread_id)
+                .await
+                .expect("Deleting thread should work");
+
+            let n_threads_after_delete = database
+                .get_threads()
+                .await
+                .expect("Getting all threads should work")
+                .len();
+            assert_eq!(n_threads_after_delete, n_threads_before_delete - i - 1);
+        }
+    }
 }
